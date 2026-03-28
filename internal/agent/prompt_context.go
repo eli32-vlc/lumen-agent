@@ -95,6 +95,12 @@ Behavioral values:
 - Be clear, direct, and honest.
 - Take sensible initiative.
 - Treat the runtime metadata and loaded workspace files in this prompt as ground truth for the current session.
+- Treat the runtime metadata block as an explicit capability map: it tells you what tools, files, schedules, sandboxes, memory, and execution modes are actually available right now.
+- Treat enabled tools and runtime switches as permission signals. If the runtime says something is enabled and low-risk, you may use it without asking for ceremonial approval.
+- Treat disabled features as real limits. Do not promise sandboxes, heartbeat delivery, attachment downloads, cron wakeups, or webhook flows unless the metadata says they are available.
+- Prefer reading the metadata before assuming how the app behaves. If a feature is configurable, trust the live config summary over habit.
+- Treat the machine-local time as your real sense of "now" for conversational awareness, day-part judgment, and answering questions like "what time is it?"
+- Treat UTC timestamps as tracking and storage metadata unless the user explicitly asks for UTC.
 - When the next step is obvious, useful, and low-risk, do it instead of waiting for permission.
 - When the user's intent is clear, try to finish the job end-to-end in the same turn instead of stopping at partial progress.
 - Use tools proactively for inspection, edits, and verification when they materially help you complete the task well.
@@ -105,6 +111,12 @@ Behavioral values:
 - When the user asks what a background sub-agent is doing, do not guess from memory. Check the task directly with get_background_task and/or get_background_task_logs first.
 - When reporting background-task progress, rely on verified task state, event logs, or tool output rather than stale assumptions.
 - If you are already running inside a background task, do not spawn another background task. Finish the work yourself, check that the requested output actually exists or the requested action actually completed, and only then report back.
+- If heartbeat wakeups or queued system events are available, you may use them to arrange precise future follow-up instead of relying on memory alone.
+- If a precise wake-up is requested, prefer scheduling it explicitly over telling the user you will simply remember.
+- When scheduling future work, restate the exact local due time back to yourself from the tool result so you do not drift on timezone assumptions.
+- If the runtime exposes a sandbox manager, treat it as a concrete execution environment you can inspect or prepare instead of describing it abstractly.
+- If the runtime exposes attachment downloads, prefer the downloaded local path over remote links for inspection work.
+- If the runtime exposes history compaction settings, assume old context may be summarized and keep durable facts in files when they matter.
 - Ask when needed, but do useful work without dragging the user through process.
 - Reserve confirmation for destructive, high-risk, expensive, identity-changing, or genuinely ambiguous actions.
 - If you cannot finish, explain the blocker and the best next step instead of asking broad, unnecessary questions.
@@ -120,6 +132,9 @@ Heartbeat mode:
 - Heartbeat runs are proactive checks, not normal user chats.
 - During a heartbeat run, read HEARTBEAT.md if available; heartbeat.md is also accepted.
 - HEARTBEAT.md is user-owned checklist content. Do not turn it into generic protocol instructions.
+- Treat queued heartbeat events as first-class instructions for this run. Work through explicit queued events before inventing new follow-ups.
+- Treat precise cron-triggered wakeups as time-sensitive. If a wakeup exists because a deadline or morning check-in was scheduled, prioritize that over generic maintenance.
+- When a heartbeat run was triggered by a precise schedule, treat the due time as a commitment and mention lateness only if it materially affects the task.
 - Do not initiate bootstrap, ask identity questions, or rewrite identity files during a heartbeat run unless the heartbeat checklist explicitly requires it.
 - During heartbeat runs, prefer action over follow-up questions: complete obvious low-risk steps without asking for confirmation.
 - If a heartbeat task is ambiguous but has a safe default, choose the default and continue; only escalate when blocked or high-risk.
@@ -176,8 +191,10 @@ func (r *Runner) systemPrompt(conversation ConversationContext) string {
 	var builder strings.Builder
 	builder.WriteString(baseSystemPrompt)
 	builder.WriteString("\n\nWake-up context:\n")
-	builder.WriteString("- Current time: ")
-	builder.WriteString(formatPromptTime(conversation.Now))
+	builder.WriteString("- Current local time: ")
+	builder.WriteString(formatPromptLocalTime(conversation.Now))
+	builder.WriteString("\n- UTC tracking time: ")
+	builder.WriteString(formatPromptUTCTime(conversation.Now))
 	if conversation.IsDirectMessage {
 		builder.WriteString("\n- Conversation type: direct message")
 	} else {
@@ -236,19 +253,47 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Provider: " + fallbackPromptValue(r.cfg.LLM.APIType, "unknown"),
 		"Provider base URL: " + sanitizePromptURL(r.cfg.LLM.BaseURL),
 		"Reasoning effort: " + fallbackPromptValue(r.cfg.LLM.ReasoningEffort, "default"),
+		"Temperature: " + fmt.Sprintf("%.2f", r.cfg.LLM.Temperature),
+		"Max completion tokens: " + strconv.Itoa(r.cfg.LLM.MaxTokens),
+		"Context window tokens: " + strconv.Itoa(r.cfg.LLM.ContextWindowTokens),
+		"LLM timeout: " + fallbackPromptValue(r.cfg.LLM.Timeout, "default"),
+		"Request max attempts: " + strconv.Itoa(r.cfg.LLM.RequestMaxAttempts),
 		"Host: " + hostName,
 		"Runtime OS/arch: " + runtime.GOOS + "/" + runtime.GOARCH,
 		"Process ID: " + strconv.Itoa(os.Getpid()),
 		"Local timezone: " + localNow.Format("MST") + " (" + localNow.Location().String() + ")",
+		"UTC tracking timestamps: " + promptBoolStatus(r.cfg.LLM.InjectMessageTimestamps),
 		"Workspace root: " + fallbackPromptValue(r.cfg.App.WorkspaceRoot, "unset"),
 		"Session dir: " + fallbackPromptValue(r.cfg.App.SessionDir, "unset"),
 		"Memory dir: " + fallbackPromptValue(r.cfg.App.MemoryDir, "unset"),
 		"Load all memory shards: " + promptBoolStatus(r.cfg.App.LoadAllMemoryShards),
 		"Config file: " + fallbackPromptValue(r.cfg.SourcePath(), "unset"),
+		"Max agent loops: " + strconv.Itoa(r.cfg.App.MaxAgentLoops),
+		"Max tool calls per turn: " + strconv.Itoa(r.cfg.App.MaxToolCallsPerTurn),
 		"History compaction: " + promptHistoryCompactionSummary(r.cfg),
 		"Message timestamps: " + promptBoolStatus(r.cfg.LLM.InjectMessageTimestamps),
+		"Exec shell: " + fallbackPromptValue(r.cfg.Tools.ExecShell, "unset"),
+		"Exec timeout: " + fallbackPromptValue(r.cfg.Tools.ExecTimeout, "default"),
+		"Max command output bytes: " + strconv.Itoa(r.cfg.Tools.MaxCommandOutputBytes),
+		"Discord direct messages: " + promptBoolStatus(r.cfg.Discord.AllowDirectMessages),
+		"Discord guild session scope: " + fallbackPromptValue(r.cfg.Discord.GuildSessionScope, "channel"),
+		"Discord reply-to-message: " + promptBoolStatus(r.cfg.Discord.ReplyToMessage),
 		"Incoming attachment downloads: " + promptAttachmentSummary(r.cfg),
 		"Background tasks: " + promptBackgroundTaskSummary(r.cfg),
+		"Background min runtime default: " + durationOrDisabled(r.cfg.BackgroundTasks.DefaultMinRuntime),
+		"Background current-time injection: " + promptBoolStatus(r.cfg.BackgroundTasks.InjectCurrentTime),
+		"Background event log cap: " + strconv.Itoa(r.cfg.BackgroundTasks.MaxEventLogEntries),
+		"Heartbeat enabled: " + promptBoolStatus(r.cfg.HeartbeatEnabled()),
+		"Heartbeat schedule: " + durationOrDisabled(r.cfg.Heartbeat.Every),
+		"Heartbeat model: " + fallbackPromptValue(r.cfg.HeartbeatModel(), "inherit"),
+		"Heartbeat light context: " + promptBoolStatus(r.cfg.Heartbeat.LightContext),
+		"Heartbeat isolated session: " + promptBoolStatus(r.cfg.Heartbeat.IsolatedSession),
+		"Heartbeat event poll interval: " + durationOrDisabled(r.cfg.Heartbeat.EventPollInterval),
+		"Heartbeat active hours: " + promptHeartbeatActiveHoursSummary(r.cfg),
+		"Heartbeat target: " + promptHeartbeatTargetSummary(r.cfg),
+		"Precise wakeups dir: " + fallbackPromptValue(r.cfg.CronJobsDir(), "unset"),
+		"Event webhook: " + promptEventWebhookSummary(r.cfg),
+		"Sandboxing: " + promptSandboxSummary(r.cfg),
 		"Enabled tools: " + promptToolSummary(r.registry),
 	}
 
@@ -299,6 +344,63 @@ func promptBackgroundTaskSummary(cfg config.Config) string {
 		parts = append(parts, "sandbox=disabled")
 	}
 
+	return strings.Join(parts, ", ")
+}
+
+func promptHeartbeatActiveHoursSummary(cfg config.Config) string {
+	start := strings.TrimSpace(cfg.Heartbeat.ActiveHours.Start)
+	end := strings.TrimSpace(cfg.Heartbeat.ActiveHours.End)
+	if start == "" || end == "" {
+		return "always"
+	}
+	zone := strings.TrimSpace(cfg.Heartbeat.ActiveHours.Timezone)
+	if zone == "" {
+		zone = time.Local.String()
+	}
+	return start + "-" + end + " " + zone
+}
+
+func promptHeartbeatTargetSummary(cfg config.Config) string {
+	target := cfg.Heartbeat.Target
+	parts := []string{}
+	if value := strings.TrimSpace(target.GuildID); value != "" {
+		parts = append(parts, "guild="+value)
+	}
+	if value := strings.TrimSpace(target.ChannelID); value != "" {
+		parts = append(parts, "channel="+value)
+	}
+	if value := strings.TrimSpace(target.UserID); value != "" {
+		parts = append(parts, "user="+value)
+	}
+	if len(parts) == 0 {
+		return "unset"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func promptEventWebhookSummary(cfg config.Config) string {
+	if !cfg.EventWebhook.Enabled {
+		return "disabled"
+	}
+	return "enabled (" + fallbackPromptValue(cfg.EventWebhook.Path, "/event") + ")"
+}
+
+func promptSandboxSummary(cfg config.Config) string {
+	if !cfg.BackgroundTasks.Sandbox.Enabled {
+		return "disabled"
+	}
+	parts := []string{
+		"enabled",
+		"provider=" + fallbackPromptValue(cfg.BackgroundTasks.Sandbox.Provider, "nspawn"),
+		"release=" + fallbackPromptValue(cfg.BackgroundTasks.Sandbox.Release, "stable"),
+		"auto_cleanup=" + promptBoolStatus(cfg.BackgroundTasks.Sandbox.AutoCleanup),
+	}
+	if cfg.BackgroundTasks.Sandbox.Force {
+		parts = append(parts, "forced")
+	}
+	if cfg.BackgroundTasks.Sandbox.UseSudo {
+		parts = append(parts, "sudo")
+	}
 	return strings.Join(parts, ", ")
 }
 
@@ -381,7 +483,11 @@ func sanitizePromptURL(raw string) string {
 	return parsed.Scheme + "://" + host + path
 }
 
-func formatPromptTime(now time.Time) string {
+func formatPromptLocalTime(now time.Time) string {
+	return now.In(time.Local).Format("2006-01-02 15:04 MST (Monday)")
+}
+
+func formatPromptUTCTime(now time.Time) string {
 	return now.UTC().Format("2006-01-02 15:04 UTC (Monday)")
 }
 

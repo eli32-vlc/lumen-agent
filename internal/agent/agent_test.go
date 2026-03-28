@@ -530,3 +530,43 @@ func TestCompactHistoryForStorageSummarizesOldTurns(t *testing.T) {
 		t.Fatalf("expected recent assistant turn to be preserved, got %q", compacted[2].Content)
 	}
 }
+
+func TestCompactHistoryForStorageChunksLargeHistory(t *testing.T) {
+	cfg := config.Config{
+		App: config.AppConfig{
+			HistoryCompaction: config.AppHistoryCompactionConfig{
+				Enabled:                true,
+				TriggerTokens:          80,
+				TargetTokens:           64,
+				PreserveRecentMessages: 2,
+			},
+		},
+		LLM: config.LLMConfig{
+			MaxTokens:           128,
+			ContextWindowTokens: 96,
+		},
+	}
+
+	history := []llm.Message{
+		{Role: "user", Content: strings.Repeat("build id abc123 path /srv/app release 42 ", 6), Timestamp: time.Now().Add(-6 * time.Minute).Format(time.RFC3339)},
+		{Role: "assistant", Content: strings.Repeat("checked logs for abc123 and release 42 ", 6), Timestamp: time.Now().Add(-5 * time.Minute).Format(time.RFC3339)},
+		{Role: "user", Content: strings.Repeat("next inspect worker host api-01.example.internal ", 6), Timestamp: time.Now().Add(-4 * time.Minute).Format(time.RFC3339)},
+		{Role: "assistant", Content: strings.Repeat("queued follow-up for api-01.example.internal and task 99 ", 6), Timestamp: time.Now().Add(-3 * time.Minute).Format(time.RFC3339)},
+		{Role: "user", Content: "keep this user turn", Timestamp: time.Now().Add(-2 * time.Minute).Format(time.RFC3339)},
+		{Role: "assistant", Content: "keep this assistant turn", Timestamp: time.Now().Add(-1 * time.Minute).Format(time.RFC3339)},
+	}
+
+	compacted := CompactHistoryForStorage(cfg, history)
+	if len(compacted) != 3 {
+		t.Fatalf("expected summary plus preserved tail, got %#v", compacted)
+	}
+	if compacted[0].Role != "system" {
+		t.Fatalf("expected first message to be system summary, got %#v", compacted[0])
+	}
+	if !strings.Contains(compacted[0].Content, "Auto-generated conversation summary") {
+		t.Fatalf("expected summary marker, got %q", compacted[0].Content)
+	}
+	if !strings.Contains(compacted[0].Content, "abc123") {
+		t.Fatalf("expected identifiers to survive compaction, got %q", compacted[0].Content)
+	}
+}

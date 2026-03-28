@@ -289,6 +289,12 @@ func TestSystemPromptInjectsSkillSnapshotXML(t *testing.T) {
 }
 
 func TestSystemPromptInjectsWakeUpTimeWithoutWorkspaceFiles(t *testing.T) {
+	previousLocal := time.Local
+	time.Local = time.FixedZone("AEST", 10*60*60)
+	defer func() {
+		time.Local = previousLocal
+	}()
+
 	workspace := t.TempDir()
 	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
 	prompt := runner.systemPrompt(ConversationContext{
@@ -297,7 +303,8 @@ func TestSystemPromptInjectsWakeUpTimeWithoutWorkspaceFiles(t *testing.T) {
 
 	for _, snippet := range []string{
 		"Wake-up context:",
-		"Current time: 2026-03-12 15:04 UTC (Thursday)",
+		"Current local time: 2026-03-13 01:04 AEST (Friday)",
+		"UTC tracking time: 2026-03-12 15:04 UTC (Thursday)",
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)
@@ -326,6 +333,8 @@ func TestSystemPromptStrengthensAutonomyGuidance(t *testing.T) {
 		"Use tools proactively for inspection, edits, and verification when they materially help you complete the task well.",
 		"After useful tool results, keep going toward completion unless you hit a real blocker.",
 		"Treat the runtime metadata and loaded workspace files in this prompt as ground truth for the current session.",
+		"Treat the machine-local time as your real sense of \"now\" for conversational awareness, day-part judgment, and answering questions like \"what time is it?\"",
+		"Treat UTC timestamps as tracking and storage metadata unless the user explicitly asks for UTC.",
 		"When reporting background-task progress, rely on verified task state, event logs, or tool output rather than stale assumptions.",
 		"If an uploaded file path appears in the prompt, treat that downloaded local path as the primary artifact to inspect.",
 		"If context feels thin, rely on the loaded summaries, durable files, recent messages, and tools; do not invent continuity.",
@@ -381,15 +390,23 @@ func TestSystemPromptMarksBackgroundTaskMode(t *testing.T) {
 }
 
 func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
+	previousLocal := time.Local
+	time.Local = time.FixedZone("AEST", 10*60*60)
+	defer func() {
+		time.Local = previousLocal
+	}()
+
 	workspace := t.TempDir()
 	sessionDir := filepath.Join(workspace, ".lumen")
 	memoryDir := filepath.Join(sessionDir, "memory")
 	cfg := config.Config{
 		App: config.AppConfig{
-			Name:          "Lumen Agent",
-			WorkspaceRoot: workspace,
-			SessionDir:    sessionDir,
-			MemoryDir:     memoryDir,
+			Name:                "Lumen Agent",
+			WorkspaceRoot:       workspace,
+			SessionDir:          sessionDir,
+			MemoryDir:           memoryDir,
+			MaxAgentLoops:       9,
+			MaxToolCallsPerTurn: 15,
 			HistoryCompaction: config.AppHistoryCompactionConfig{
 				Enabled:                true,
 				TriggerTokens:          9000,
@@ -402,15 +419,29 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 			BaseURL:                 "https://api.example.test/v1",
 			Model:                   "gpt-5.4",
 			ReasoningEffort:         "medium",
+			Temperature:             0.4,
+			MaxTokens:               2048,
+			ContextWindowTokens:     8192,
 			InjectMessageTimestamps: true,
+			Timeout:                 "90s",
+			RequestMaxAttempts:      4,
+		},
+		Tools: config.ToolsConfig{
+			ExecShell:             "/bin/bash",
+			ExecTimeout:           "30s",
+			MaxCommandOutputBytes: 8192,
 		},
 		Discord: config.DiscordConfig{
+			AllowDirectMessages:         true,
+			GuildSessionScope:           "channel",
+			ReplyToMessage:              true,
 			DownloadIncomingAttachments: true,
 			IncomingAttachmentsDir:      filepath.Join(sessionDir, "incoming-attachments"),
 		},
 		BackgroundTasks: config.BackgroundTasksConfig{
-			DefaultMinRuntime: "90s",
-			InjectCurrentTime: true,
+			DefaultMinRuntime:  "10m",
+			InjectCurrentTime:  true,
+			MaxEventLogEntries: 55,
 			Sandbox: config.BackgroundTaskSandboxConfig{
 				Enabled:      true,
 				Force:        false,
@@ -419,7 +450,29 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 				Release:      "stable",
 				Architecture: "amd64",
 				MachinesDir:  filepath.Join(sessionDir, "sandboxes"),
+				AutoCleanup:  true,
 			},
+		},
+		Heartbeat: config.HeartbeatConfig{
+			Every:             "45m",
+			Model:             "gpt-heartbeat",
+			LightContext:      true,
+			IsolatedSession:   true,
+			EventPollInterval: "7s",
+			ActiveHours: config.HeartbeatActiveHoursConfig{
+				Timezone: "Australia/Brisbane",
+				Start:    "08:00",
+				End:      "22:00",
+			},
+			Target: config.HeartbeatTargetConfig{
+				GuildID:   "guild-1",
+				ChannelID: "channel-1",
+				UserID:    "user-1",
+			},
+		},
+		EventWebhook: config.EventWebhookConfig{
+			Enabled: true,
+			Path:    "/event",
 		},
 		MCP: config.MCPConfig{
 			Servers: []config.MCPServerConfig{
@@ -441,15 +494,43 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"Model: gpt-5.5-preview",
 		"Provider: codex",
 		"Provider base URL: https://api.example.test/v1",
+		"Temperature: 0.40",
+		"Max completion tokens: 2048",
+		"Context window tokens: 8192",
+		"LLM timeout: 90s",
+		"Request max attempts: 4",
 		"Workspace root: " + workspace,
 		"Session dir: " + sessionDir,
 		"Memory dir: " + memoryDir,
+		"UTC tracking timestamps: enabled",
+		"Max agent loops: 9",
+		"Max tool calls per turn: 15",
 		"Load all memory shards: disabled",
 		"Config file: " + filepath.Join(workspace, "config", "lumen.yaml"),
 		"History compaction: enabled (trigger=9000, target=5000, preserve_recent=10)",
 		"Message timestamps: enabled",
+		"Exec shell: /bin/bash",
+		"Exec timeout: 30s",
+		"Max command output bytes: 8192",
+		"Discord direct messages: enabled",
+		"Discord guild session scope: channel",
+		"Discord reply-to-message: enabled",
 		"Incoming attachment downloads: enabled -> " + filepath.Join(sessionDir, "incoming-attachments"),
-		"Background tasks: min_runtime=90s, time_injection=enabled, sandbox=nspawn, force=disabled, sudo=enabled",
+		"Background tasks: min_runtime=10m, time_injection=enabled, sandbox=nspawn, force=disabled, sudo=enabled",
+		"Background min runtime default: 10m",
+		"Background current-time injection: enabled",
+		"Background event log cap: 55",
+		"Heartbeat enabled: enabled",
+		"Heartbeat schedule: 45m",
+		"Heartbeat model: gpt-heartbeat",
+		"Heartbeat light context: enabled",
+		"Heartbeat isolated session: enabled",
+		"Heartbeat event poll interval: 7s",
+		"Heartbeat active hours: 08:00-22:00 Australia/Brisbane",
+		"Heartbeat target: guild=guild-1, channel=channel-1, user=user-1",
+		"Precise wakeups dir: " + filepath.Join(sessionDir, "cron-jobs"),
+		"Event webhook: enabled (/event)",
+		"Sandboxing: enabled, provider=nspawn, release=stable, auto_cleanup=enabled, sudo",
 		"Enabled MCP servers: browser",
 	} {
 		if !strings.Contains(prompt, snippet) {

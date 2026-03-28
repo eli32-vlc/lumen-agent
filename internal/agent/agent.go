@@ -451,57 +451,7 @@ func CompactHistoryForNextTurn(history []llm.Message) []llm.Message {
 }
 
 func CompactHistoryForStorage(cfg config.Config, history []llm.Message) []llm.Message {
-	compacted := CompactHistoryForNextTurn(history)
-	if !cfg.App.HistoryCompaction.Enabled || len(compacted) == 0 {
-		return compacted
-	}
-
-	trigger := cfg.HistoryCompactionTriggerTokens()
-	target := cfg.HistoryCompactionTargetTokens()
-	preserve := cfg.HistoryCompactionPreserveRecentMessages()
-	if trigger <= 0 || target <= 0 || preserve <= 0 {
-		return compacted
-	}
-	if approximateHistoryTokens(compacted) <= trigger {
-		return compacted
-	}
-	if len(compacted) <= preserve {
-		return compacted
-	}
-
-	tailStart := len(compacted) - preserve
-	if tailStart < 1 {
-		tailStart = 1
-	}
-	for tailStart > 0 && tailStart < len(compacted) && compacted[tailStart].Role == "tool" {
-		tailStart--
-	}
-	for tailStart > 0 && len(compacted[tailStart-1].ToolCalls) > 0 {
-		tailStart--
-	}
-	if tailStart <= 0 || tailStart >= len(compacted) {
-		return historyTail(compacted, preserve)
-	}
-
-	head := compacted[:tailStart]
-	tail := compacted[tailStart:]
-	if len(head) == 0 {
-		return compacted
-	}
-
-	summary := summarizeHistory(head, target)
-	if strings.TrimSpace(summary) == "" {
-		return compacted
-	}
-
-	result := make([]llm.Message, 0, 1+len(tail))
-	result = append(result, llm.Message{
-		Role:      "system",
-		Content:   summary,
-		Timestamp: lastHistoryTimestamp(head),
-	})
-	result = append(result, tail...)
-	return normalizeToolCallHistory(result)
+	return compactHistoryForStorage(cfg, history)
 }
 
 func toolErrorResult(name string, err error) string {
@@ -714,47 +664,6 @@ func approximateHistoryTokens(history []llm.Message) int {
 		total += approximateMessageTokens(message)
 	}
 	return total
-}
-
-func summarizeHistory(history []llm.Message, targetTokens int) string {
-	if len(history) == 0 {
-		return ""
-	}
-
-	var builder strings.Builder
-	builder.WriteString("Auto-generated conversation summary of earlier context:\n")
-
-	maxLines := len(history)
-	if maxLines > 48 {
-		maxLines = 48
-	}
-
-	lines := 0
-	for _, message := range history {
-		if lines >= maxLines || approximateTextTokens(builder.String()) >= targetTokens {
-			break
-		}
-		line := historySummaryLine(message)
-		if line == "" {
-			continue
-		}
-		builder.WriteString("- ")
-		builder.WriteString(line)
-		builder.WriteByte('\n')
-		lines++
-	}
-
-	summary := strings.TrimSpace(builder.String())
-	if approximateTextTokens(summary) <= targetTokens {
-		return summary
-	}
-
-	trimmed := []rune(summary)
-	limit := targetTokens * 4
-	if limit > 3 && len(trimmed) > limit {
-		return strings.TrimSpace(string(trimmed[:limit-3])) + "..."
-	}
-	return summary
 }
 
 func historySummaryLine(message llm.Message) string {

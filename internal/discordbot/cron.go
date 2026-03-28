@@ -186,6 +186,8 @@ func cronJobsToHeartbeatEvents(jobs []queuedCronJob) []heartbeatSystemEvent {
 		events = append(events, heartbeatSystemEvent{
 			Text:      job.Job.Text,
 			Mode:      heartbeatModeNow,
+			Source:    "cron",
+			DueAt:     job.Job.DueAt,
 			CreatedAt: job.Job.CreatedAt,
 		})
 	}

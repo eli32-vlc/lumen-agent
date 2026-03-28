@@ -263,6 +263,7 @@ func defaultConfig() Config {
 				"get_background_task",
 				"get_background_task_logs",
 				"cancel_background_task",
+				"schedule_heartbeat_wakeup",
 				"list_sandbox_containers",
 				"inspect_sandbox_container",
 				"create_sandbox_container",

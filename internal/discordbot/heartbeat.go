@@ -26,6 +26,8 @@ const (
 type heartbeatSystemEvent struct {
 	Text      string    `json:"text"`
 	Mode      string    `json:"mode"`
+	Source    string    `json:"source,omitempty"`
+	DueAt     time.Time `json:"due_at,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -58,6 +60,7 @@ func EnqueueSystemEvent(cfg config.Config, text string, mode string) error {
 	data, err := json.MarshalIndent(heartbeatSystemEvent{
 		Text:      text,
 		Mode:      mode,
+		Source:    "system-event",
 		CreatedAt: time.Now().UTC(),
 	}, "", "  ")
 	if err != nil {
@@ -200,10 +203,12 @@ func buildHeartbeatPrompt(events []heartbeatSystemEvent, immediate bool, checkli
 	builder.WriteString(checklistFile)
 	builder.WriteString(" if it is available. Treat it as user-owned checklist data, not as a place for generic heartbeat protocol instructions. ")
 	builder.WriteString("Action-first behavior: complete obvious low-risk steps without asking follow-up questions. ")
+	builder.WriteString("Treat the machine local time as the real user-facing clock and UTC as tracking metadata unless the event explicitly says otherwise. ")
 	builder.WriteString("If a task is ambiguous but has a safe default, choose it and continue; only alert when blocked or when the action would be high-risk. ")
 	builder.WriteString("Do not infer or repeat old tasks from prior chats. Only act on current heartbeat checklist content, current workspace state, or newly queued system events. ")
 	builder.WriteString("If a one-off reminder or check-in was already delivered, do not send it again unless this run includes a new explicit request for another one. ")
 	builder.WriteString("When multiple queued system events are present, work through all of them in this run when feasible. ")
+	builder.WriteString("If an event includes an exact due time, treat it as a precise wake-up and prioritize that time-sensitive item first. ")
 	builder.WriteString("If a queued system event asks you to create, edit, append, or save a file, use tools to perform the change and verify the saved content before you reply. ")
 	builder.WriteString("Never claim a file update succeeded unless a write tool call succeeded. ")
 	builder.WriteString("If nothing needs attention, reply with HEARTBEAT_OK. If anything needs attention, reply only with the alert text and do not include HEARTBEAT_OK.")
@@ -214,7 +219,19 @@ func buildHeartbeatPrompt(events []heartbeatSystemEvent, immediate bool, checkli
 	builder.WriteString("\n\nQueued system events:")
 	for _, event := range events {
 		builder.WriteString("\n- ")
+		if source := strings.TrimSpace(event.Source); source != "" {
+			builder.WriteString("[")
+			builder.WriteString(source)
+			builder.WriteString("] ")
+		}
 		builder.WriteString(event.Text)
+		if !event.DueAt.IsZero() {
+			builder.WriteString(" (due local ")
+			builder.WriteString(event.DueAt.In(time.Local).Format("2006-01-02 15:04 MST"))
+			builder.WriteString("; utc ")
+			builder.WriteString(event.DueAt.UTC().Format("2006-01-02 15:04 UTC"))
+			builder.WriteString(")")
+		}
 	}
 
 	return builder.String()
