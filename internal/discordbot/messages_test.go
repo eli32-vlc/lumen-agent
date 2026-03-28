@@ -34,3 +34,13 @@ func TestSplitOutgoingMessagesDiscordLimit(t *testing.T) {
 		t.Fatalf("joined parts did not match original text")
 	}
 }
+
+func TestSplitOutgoingMessagesRemovesMessageTimePrefix(t *testing.T) {
+	parts := splitOutgoingMessages("[message_time 2026-03-28T05:24:27Z]\nFirst reply")
+	if len(parts) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(parts))
+	}
+	if parts[0] != "First reply" {
+		t.Fatalf("unexpected part: %q", parts[0])
+	}
+}

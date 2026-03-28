@@ -1,6 +1,7 @@
 package discordbot
 
 import (
+	"lumen-agent/internal/llm"
 	"strings"
 	"unicode/utf8"
 )
@@ -8,7 +9,7 @@ import (
 const discordMessageLimit = 2000
 
 func splitOutgoingMessages(content string) []string {
-	rawParts := strings.Split(content, "<chunk>")
+	rawParts := strings.Split(llm.StripMessageTimeMetadata(content), "<chunk>")
 	parts := make([]string, 0, len(rawParts))
 	for _, raw := range rawParts {
 		trimmed := strings.TrimSpace(raw)

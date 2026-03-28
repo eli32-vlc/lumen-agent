@@ -37,6 +37,10 @@ func NewManager(cfg config.Config) *Manager {
 }
 
 func (m *Manager) CreateSandbox(ctx context.Context, options tools.SandboxCreateOptions) (tools.BackgroundTaskSandboxInfo, error) {
+	if err := requireRootForSandbox("debootstrap"); err != nil {
+		return tools.BackgroundTaskSandboxInfo{}, err
+	}
+
 	name := sanitizeSandboxName(options.Name)
 	if name == "" {
 		name = sanitizeSandboxName("sandbox-" + time.Now().UTC().Format("20060102-150405"))
@@ -67,6 +71,10 @@ func (m *Manager) CreateSandbox(ctx context.Context, options tools.SandboxCreate
 }
 
 func (m *Manager) StartSandbox(ctx context.Context, name string) (tools.BackgroundTaskSandboxInfo, error) {
+	if err := requireRootForSandbox("systemd-nspawn"); err != nil {
+		return tools.BackgroundTaskSandboxInfo{}, err
+	}
+
 	name = sanitizeSandboxName(name)
 	if name == "" {
 		return tools.BackgroundTaskSandboxInfo{}, fmt.Errorf("sandbox name must not be empty")
@@ -319,6 +327,17 @@ func (m *Manager) runCommand(ctx context.Context, name string, args ...string) e
 		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func requireRootForSandbox(command string) error {
+	if os.Geteuid() == 0 {
+		return nil
+	}
+	command = strings.TrimSpace(command)
+	if command == "" {
+		command = "sandbox setup"
+	}
+	return fmt.Errorf("%s requires root privileges; run the Lumen service as root or disable background_tasks.sandbox", command)
 }
 
 func (m *Manager) activeProcess(name string) (*processState, bool) {

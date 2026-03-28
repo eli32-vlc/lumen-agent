@@ -79,6 +79,15 @@ func TestSanitizeAssistantContentRemovesThinkBlocks(t *testing.T) {
 	}
 }
 
+func TestSanitizeAssistantContentRemovesMessageTimePrefix(t *testing.T) {
+	content := "[message_time 2026-03-28T05:24:27Z]\nhello"
+
+	got := sanitizeAssistantContent(content)
+	if got != "hello" {
+		t.Fatalf("expected message_time prefix to be removed, got %q", got)
+	}
+}
+
 func TestCompactHistoryForNextTurnDropsAssistantResponseItems(t *testing.T) {
 	history := []llm.Message{
 		{

@@ -242,6 +242,17 @@ func TestBuildResponsesInputUsesStoredResponseItemsForAssistantMessages(t *testi
 	}
 }
 
+func TestResponseMessageToMessageStripsMessageTimePrefix(t *testing.T) {
+	message := responseMessage{
+		Role:    "assistant",
+		Content: flexibleContent{text: "[message_time 2026-03-28T05:24:27Z]\nhello"},
+	}.toMessage()
+
+	if message.Content != "hello" {
+		t.Fatalf("expected message_time prefix to be removed, got %q", message.Content)
+	}
+}
+
 func TestBuildResponsesInputDropsOrphanFunctionCallOutputs(t *testing.T) {
 	items := buildResponsesInput([]Message{
 		{Role: "system", Content: "You are helpful."},

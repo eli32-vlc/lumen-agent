@@ -602,7 +602,7 @@ func approximateTextTokens(value string) int {
 }
 
 func sanitizeAssistantContent(content string) string {
-	trimmed := strings.TrimSpace(content)
+	trimmed := strings.TrimSpace(llm.StripMessageTimeMetadata(content))
 	if trimmed == "" {
 		return ""
 	}

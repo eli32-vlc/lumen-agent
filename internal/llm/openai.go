@@ -572,7 +572,7 @@ type responseMessage struct {
 func (m responseMessage) toMessage() Message {
 	return Message{
 		Role:      m.Role,
-		Content:   m.Content.String(),
+		Content:   StripMessageTimeMetadata(m.Content.String()),
 		Name:      m.Name,
 		ToolCalls: m.ToolCalls,
 	}
@@ -638,7 +638,7 @@ func (r responsesCreateResponse) toMessage() (Message, error) {
 		}
 	}
 
-	message.Content = content.String()
+	message.Content = StripMessageTimeMetadata(content.String())
 	if strings.TrimSpace(message.Content) == "" && len(message.ToolCalls) == 0 {
 		return Message{}, fmt.Errorf("response did not include assistant output")
 	}
