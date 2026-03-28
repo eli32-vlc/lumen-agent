@@ -501,7 +501,7 @@ func CompactHistoryForStorage(cfg config.Config, history []llm.Message) []llm.Me
 		Timestamp: lastHistoryTimestamp(head),
 	})
 	result = append(result, tail...)
-	return dropOrphanToolMessages(result)
+	return normalizeToolCallHistory(result)
 }
 
 func toolErrorResult(name string, err error) string {
@@ -562,7 +562,7 @@ func trimHistoryForContext(history []llm.Message, systemPrompt string, budgetTok
 		selected[left], selected[right] = selected[right], selected[left]
 	}
 
-	selected = dropOrphanToolMessages(selected)
+	selected = normalizeToolCallHistory(selected)
 	if len(selected) == 0 {
 		return historyTail(history, 1)
 	}
@@ -645,12 +645,13 @@ func sanitizeAssistantContent(content string) string {
 	return strings.Join(strings.Fields(sanitized), " ")
 }
 
-func dropOrphanToolMessages(history []llm.Message) []llm.Message {
+func normalizeToolCallHistory(history []llm.Message) []llm.Message {
 	if len(history) == 0 {
 		return nil
 	}
 
 	validToolCallIDs := make(map[string]struct{})
+	toolResponseIDs := make(map[string]struct{})
 	for _, message := range history {
 		for _, call := range message.ToolCalls {
 			if strings.TrimSpace(call.ID) == "" {
@@ -658,10 +659,30 @@ func dropOrphanToolMessages(history []llm.Message) []llm.Message {
 			}
 			validToolCallIDs[call.ID] = struct{}{}
 		}
+		if message.Role == "tool" && strings.TrimSpace(message.ToolCallID) != "" {
+			toolResponseIDs[strings.TrimSpace(message.ToolCallID)] = struct{}{}
+		}
 	}
 
 	cleaned := make([]llm.Message, 0, len(history))
 	for _, message := range history {
+		if len(message.ToolCalls) > 0 {
+			allMatched := true
+			for _, call := range message.ToolCalls {
+				callID := strings.TrimSpace(call.ID)
+				if callID == "" {
+					continue
+				}
+				if _, ok := toolResponseIDs[callID]; !ok {
+					allMatched = false
+					break
+				}
+			}
+			if !allMatched {
+				continue
+			}
+		}
+
 		if message.Role != "tool" {
 			cleaned = append(cleaned, message)
 			continue

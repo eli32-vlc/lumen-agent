@@ -52,14 +52,14 @@ func TestTrimHistoryForContextKeepsLatestMessage(t *testing.T) {
 	}
 }
 
-func TestDropOrphanToolMessagesRemovesDanglingToolResponses(t *testing.T) {
+func TestNormalizeToolCallHistoryRemovesDanglingToolResponses(t *testing.T) {
 	history := []llm.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "tool", ToolCallID: "missing", Content: "orphan"},
 		{Role: "assistant", Content: "ok"},
 	}
 
-	cleaned := dropOrphanToolMessages(history)
+	cleaned := normalizeToolCallHistory(history)
 	if len(cleaned) != 2 {
 		t.Fatalf("expected orphan tool message to be removed, got %d messages", len(cleaned))
 	}
@@ -67,6 +67,55 @@ func TestDropOrphanToolMessagesRemovesDanglingToolResponses(t *testing.T) {
 		if message.Role == "tool" {
 			t.Fatalf("did not expect tool message in cleaned history: %+v", message)
 		}
+	}
+}
+
+func TestNormalizeToolCallHistoryRemovesAssistantToolCallWithoutResponses(t *testing.T) {
+	history := []llm.Message{
+		{Role: "user", Content: "hello"},
+		{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: llm.ToolFunctionCall{
+					Name:      "list_dir",
+					Arguments: `{"path":"."}`,
+				},
+			}},
+		},
+		{Role: "assistant", Content: "done"},
+	}
+
+	cleaned := normalizeToolCallHistory(history)
+	if len(cleaned) != 2 {
+		t.Fatalf("expected orphan assistant tool call message to be removed, got %#v", cleaned)
+	}
+	if cleaned[1].Role != "assistant" || cleaned[1].Content != "done" {
+		t.Fatalf("unexpected cleaned history %#v", cleaned)
+	}
+}
+
+func TestNormalizeToolCallHistoryKeepsMatchedAssistantToolCallAndToolResponse(t *testing.T) {
+	history := []llm.Message{
+		{Role: "user", Content: "hello"},
+		{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: llm.ToolFunctionCall{
+					Name:      "list_dir",
+					Arguments: `{"path":"."}`,
+				},
+			}},
+		},
+		{Role: "tool", ToolCallID: "call_1", Content: `{"entries":["README.md"]}`},
+	}
+
+	cleaned := normalizeToolCallHistory(history)
+	if len(cleaned) != 3 {
+		t.Fatalf("expected matched tool call pair to remain, got %#v", cleaned)
 	}
 }
 
