@@ -158,6 +158,7 @@ Defines external MCP servers whose tools should be exposed at startup.
 
 - `background_tasks.sandbox.enabled`
 - `background_tasks.sandbox.force`
+- `background_tasks.sandbox.use_sudo`
 - `background_tasks.sandbox.provider`
 - `background_tasks.sandbox.release`
 - `background_tasks.sandbox.architecture`

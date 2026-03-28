@@ -72,6 +72,7 @@ background_tasks:
   sandbox:
     enabled: false
     force: false
+    use_sudo: false
     provider: nspawn
     release: stable
     architecture: amd64

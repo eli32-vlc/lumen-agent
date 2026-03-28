@@ -351,6 +351,7 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 			Sandbox: config.BackgroundTaskSandboxConfig{
 				Enabled:      true,
 				Force:        false,
+				UseSudo:      true,
 				Provider:     "nspawn",
 				Release:      "stable",
 				Architecture: "amd64",
@@ -384,7 +385,7 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"History compaction: enabled (trigger=9000, target=5000, preserve_recent=10)",
 		"Message timestamps: enabled",
 		"Incoming attachment downloads: enabled -> " + filepath.Join(sessionDir, "incoming-attachments"),
-		"Background tasks: min_runtime=90s, time_injection=enabled, sandbox=nspawn, force=disabled",
+		"Background tasks: min_runtime=90s, time_injection=enabled, sandbox=nspawn, force=disabled, sudo=enabled",
 		"Enabled MCP servers: browser",
 	} {
 		if !strings.Contains(prompt, snippet) {

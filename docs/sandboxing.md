@@ -30,6 +30,7 @@ Relevant config fields:
 
 - `background_tasks.sandbox.enabled`
 - `background_tasks.sandbox.force`
+- `background_tasks.sandbox.use_sudo`
 - `background_tasks.sandbox.provider`
 - `background_tasks.sandbox.release`
 - `background_tasks.sandbox.architecture`
@@ -47,6 +48,7 @@ If `background_tasks.sandbox.enabled` is true and `force` is false:
 - sandboxing is available
 - the Dom Agent can request it per background task
 - tasks that do not request it run normally
+- if `use_sudo` is enabled, privileged sandbox commands are run through `sudo`
 
 ### Forced mode
 
@@ -101,6 +103,7 @@ These tools are exposed so the agent can inspect and control the container lifec
 - This feature is Linux-oriented. It depends on systemd tooling.
 - `debootstrap`, `systemd-nspawn`, `machinectl`, and `systemd-run` need to exist on the host.
 - Creating or starting sandboxes usually requires running the Lumen service with root privileges.
+- If `background_tasks.sandbox.use_sudo` is enabled, Lumen will try to run those privileged sandbox commands via `sudo`, which works best with passwordless sudo.
 - If the host has low disk space or missing packages, sandbox creation can fail.
 - A half-created rootfs can leave a container directory that exists but is not usable.
 

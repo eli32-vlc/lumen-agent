@@ -100,6 +100,7 @@ type BackgroundTasksConfig struct {
 type BackgroundTaskSandboxConfig struct {
 	Enabled      bool   `yaml:"enabled"`
 	Force        bool   `yaml:"force"`
+	UseSudo      bool   `yaml:"use_sudo"`
 	Provider     string `yaml:"provider"`
 	Release      string `yaml:"release"`
 	Architecture string `yaml:"architecture"`
@@ -281,6 +282,7 @@ func defaultConfig() Config {
 			Sandbox: BackgroundTaskSandboxConfig{
 				Enabled:      false,
 				Force:        false,
+				UseSudo:      false,
 				Provider:     "nspawn",
 				Release:      "stable",
 				Architecture: "",

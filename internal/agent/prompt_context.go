@@ -289,6 +289,7 @@ func promptBackgroundTaskSummary(cfg config.Config) string {
 		parts = append(parts,
 			"sandbox="+fallbackPromptValue(cfg.BackgroundTasks.Sandbox.Provider, "nspawn"),
 			"force="+promptBoolStatus(cfg.BackgroundTasks.Sandbox.Force),
+			"sudo="+promptBoolStatus(cfg.BackgroundTasks.Sandbox.UseSudo),
 			"machines_dir="+fallbackPromptValue(cfg.BackgroundTasks.Sandbox.MachinesDir, "unset"),
 			"release="+fallbackPromptValue(cfg.BackgroundTasks.Sandbox.Release, "stable"),
 			"arch="+fallbackPromptValue(cfg.BackgroundTasks.Sandbox.Architecture, "default"),

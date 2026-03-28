@@ -37,7 +37,7 @@ func NewManager(cfg config.Config) *Manager {
 }
 
 func (m *Manager) CreateSandbox(ctx context.Context, options tools.SandboxCreateOptions) (tools.BackgroundTaskSandboxInfo, error) {
-	if err := requireRootForSandbox("debootstrap"); err != nil {
+	if err := m.requirePrivilegeForSandbox("debootstrap"); err != nil {
 		return tools.BackgroundTaskSandboxInfo{}, err
 	}
 
@@ -71,7 +71,7 @@ func (m *Manager) CreateSandbox(ctx context.Context, options tools.SandboxCreate
 }
 
 func (m *Manager) StartSandbox(ctx context.Context, name string) (tools.BackgroundTaskSandboxInfo, error) {
-	if err := requireRootForSandbox("systemd-nspawn"); err != nil {
+	if err := m.requirePrivilegeForSandbox("systemd-nspawn"); err != nil {
 		return tools.BackgroundTaskSandboxInfo{}, err
 	}
 
@@ -106,7 +106,8 @@ func (m *Manager) StartSandbox(ctx context.Context, name string) (tools.Backgrou
 		"--machine=" + name,
 		"--bind=" + m.cfg.App.WorkspaceRoot + ":" + m.cfg.App.WorkspaceRoot,
 	}
-	cmd := exec.CommandContext(context.Background(), "systemd-nspawn", args...)
+	cmdName, cmdArgs := m.commandSpec("systemd-nspawn", args...)
+	cmd := exec.CommandContext(context.Background(), cmdName, cmdArgs...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -254,7 +255,7 @@ func (m *Manager) ExecInSandbox(ctx context.Context, options tools.SandboxExecOp
 	}
 	shellCommand := fmt.Sprintf("cd %s && %s", shellQuote(workingDir), command)
 
-	cmd := exec.CommandContext(timedCtx, "systemd-run",
+	cmdName, cmdArgs := m.commandSpec("systemd-run",
 		"--quiet",
 		"--wait",
 		"--pipe",
@@ -264,6 +265,7 @@ func (m *Manager) ExecInSandbox(ctx context.Context, options tools.SandboxExecOp
 		"-lc",
 		shellCommand,
 	)
+	cmd := exec.CommandContext(timedCtx, cmdName, cmdArgs...)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -321,23 +323,36 @@ func (m *Manager) waitForRunning(ctx context.Context, name string, done chan err
 }
 
 func (m *Manager) runCommand(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmdName, cmdArgs := m.commandSpec(name, args...)
+	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+		display := strings.TrimSpace(strings.Join(append([]string{cmdName}, cmdArgs...), " "))
+		return fmt.Errorf("%s: %w: %s", display, err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
 
-func requireRootForSandbox(command string) error {
-	if os.Geteuid() == 0 {
+func (m *Manager) requirePrivilegeForSandbox(command string) error {
+	if os.Geteuid() == 0 || m.cfg.BackgroundTasks.Sandbox.UseSudo {
 		return nil
 	}
 	command = strings.TrimSpace(command)
 	if command == "" {
 		command = "sandbox setup"
 	}
-	return fmt.Errorf("%s requires root privileges; run the Lumen service as root or disable background_tasks.sandbox", command)
+	return fmt.Errorf("%s requires root privileges; run the Lumen service as root, enable background_tasks.sandbox.use_sudo, or disable background_tasks.sandbox", command)
+}
+
+func (m *Manager) commandSpec(name string, args ...string) (string, []string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", append([]string(nil), args...)
+	}
+	if os.Geteuid() != 0 && m.cfg.BackgroundTasks.Sandbox.UseSudo {
+		return "sudo", append([]string{name}, args...)
+	}
+	return name, append([]string(nil), args...)
 }
 
 func (m *Manager) activeProcess(name string) (*processState, bool) {
