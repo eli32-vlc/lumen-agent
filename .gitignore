@@ -5,6 +5,7 @@ bin/
 dist/
 lumen-agent
 config/lumen.yaml
+config/lumenmac.yaml
 config/*.local.yaml
 IDENTITY.md
 USER.md
@@ -23,3 +24,4 @@ workspace/heartbeat.md
 workspace/TASKS.md
 workspace/tasks.md
 workspace/CODEBASE.md
+workspace/*
