@@ -54,6 +54,7 @@ func NewRegistry(cfg config.Config) (*Registry, error) {
 	registry.registerFilesystemTools()
 	registry.registerExecTool()
 	registry.registerDiscordTool()
+	registry.registerContextCompactionTool()
 	registry.registerBackgroundTaskTools()
 	registry.registerHeartbeatWakeTools()
 	registry.registerSandboxTools()

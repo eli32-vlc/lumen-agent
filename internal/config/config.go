@@ -257,6 +257,7 @@ func defaultConfig() Config {
 				"move_path",
 				"delete_path",
 				"exec_command",
+				"compact_context",
 				"send_discord_file",
 				"start_background_task",
 				"list_background_tasks",

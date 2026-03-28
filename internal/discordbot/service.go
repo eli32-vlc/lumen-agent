@@ -26,6 +26,8 @@ import (
 
 const (
 	newCommandName         = "new"
+	statusCommandName      = "status"
+	compactCommandName     = "compact"
 	stopCommandName        = "stop"
 	typingInterval         = 8 * time.Second
 	promptQueueSize        = 16
@@ -221,6 +223,14 @@ func (s *Service) syncCommands() error {
 			Description: "Start a fresh chat session in this channel",
 		},
 		{
+			Name:        statusCommandName,
+			Description: "Show session, background task, and context-window status for this channel",
+		},
+		{
+			Name:        compactCommandName,
+			Description: "Compact the current session history for this channel",
+		},
+		{
 			Name:        stopCommandName,
 			Description: "Emergency stop: cancel the active session in this channel",
 		},
@@ -253,6 +263,10 @@ func (s *Service) handleInteractionCreate(_ *discordgo.Session, interaction *dis
 	switch interaction.ApplicationCommandData().Name {
 	case newCommandName:
 		s.handleNewCommand(interaction)
+	case statusCommandName:
+		s.handleStatusCommand(interaction)
+	case compactCommandName:
+		s.handleCompactCommand(interaction)
 	case stopCommandName:
 		s.handleStopCommand(interaction)
 	}
@@ -329,6 +343,47 @@ func (s *Service) handleStopCommand(interaction *discordgo.InteractionCreate) {
 		message = emergencyStopDoneReply
 	}
 
+	s.respondToInteraction(interaction, message, interaction.GuildID != "")
+}
+
+func (s *Service) handleStatusCommand(interaction *discordgo.InteractionCreate) {
+	if interaction == nil {
+		return
+	}
+
+	userID := interactionUserID(interaction)
+	if userID == "" {
+		return
+	}
+	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
+		s.respondToInteraction(interaction, reason, interaction.GuildID != "")
+		return
+	}
+
+	key := s.sessionKey(interaction.GuildID, interaction.ChannelID, userID)
+	s.respondToInteraction(interaction, s.statusReport(key), interaction.GuildID != "")
+}
+
+func (s *Service) handleCompactCommand(interaction *discordgo.InteractionCreate) {
+	if interaction == nil {
+		return
+	}
+
+	userID := interactionUserID(interaction)
+	if userID == "" {
+		return
+	}
+	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
+		s.respondToInteraction(interaction, reason, interaction.GuildID != "")
+		return
+	}
+
+	key := s.sessionKey(interaction.GuildID, interaction.ChannelID, userID)
+	message, err := s.compactSessionForKey(key)
+	if err != nil {
+		s.respondToInteraction(interaction, formatRunErrorForDiscord(err), interaction.GuildID != "")
+		return
+	}
 	s.respondToInteraction(interaction, message, interaction.GuildID != "")
 }
 
@@ -1099,6 +1154,81 @@ func (s *Service) lookupSession(key sessionKey) *sessionState {
 	return s.sessions[key.String()]
 }
 
+func (s *Service) statusReport(key sessionKey) string {
+	session := s.lookupSession(key)
+	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
+
+	lines := []string{
+		"Lumen status",
+		"",
+		fmt.Sprintf("Active sessions: %d", activeSessions),
+		fmt.Sprintf("Background tasks: %d queued, %d running, %d completed, %d failed, %d canceled", queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+		fmt.Sprintf("Context window: %d tokens", s.cfg.LLM.ContextWindowTokens),
+		fmt.Sprintf("Input budget: %d tokens", s.cfg.LLMInputTokenBudget()),
+		fmt.Sprintf("History compaction: enabled=%s, trigger=%d, target=%d, preserve_recent=%d",
+			yesNo(s.cfg.App.HistoryCompaction.Enabled),
+			s.cfg.HistoryCompactionTriggerTokens(),
+			s.cfg.HistoryCompactionTargetTokens(),
+			s.cfg.HistoryCompactionPreserveRecentMessages(),
+		),
+	}
+
+	if session == nil {
+		lines = append(lines, "Current session: none")
+		return strings.Join(lines, "\n")
+	}
+
+	history, _ := session.snapshotForRun()
+	lines = append(lines,
+		fmt.Sprintf("Current session: %s", session.ID),
+		fmt.Sprintf("Current queue depth: %d", len(session.Queue)),
+		fmt.Sprintf("Current history: %d messages, ~%d tokens", len(history), agent.EstimateHistoryTokens(history)),
+		fmt.Sprintf("Last updated: %s", session.updatedAt().UTC().Format(time.RFC3339)),
+	)
+	return strings.Join(lines, "\n")
+}
+
+func (s *Service) compactSessionForKey(key sessionKey) (string, error) {
+	session := s.lookupSession(key)
+	if session == nil {
+		return "No active session in this channel to compact.", nil
+	}
+
+	session.lockRun()
+	defer session.unlockRun()
+
+	history, _ := session.snapshotForRun()
+	beforeMessages := len(history)
+	beforeTokens := agent.EstimateHistoryTokens(history)
+	compacted := agent.CompactHistoryForStorage(s.cfg, history)
+	afterMessages := len(compacted)
+	afterTokens := agent.EstimateHistoryTokens(compacted)
+
+	session.setHistory(compacted)
+	session.setUpdatedAt(time.Now().UTC())
+	if err := session.persist(); err != nil {
+		return "", fmt.Errorf("persist compacted session: %w", err)
+	}
+
+	if beforeMessages == afterMessages && beforeTokens == afterTokens {
+		return fmt.Sprintf(
+			"Context already compact enough. Session `%s` stayed at %d messages and ~%d tokens.",
+			session.ID,
+			afterMessages,
+			afterTokens,
+		), nil
+	}
+
+	return fmt.Sprintf(
+		"Compacted session `%s`: %d -> %d messages, ~%d -> ~%d tokens.",
+		session.ID,
+		beforeMessages,
+		afterMessages,
+		beforeTokens,
+		afterTokens,
+	), nil
+}
+
 func (s *sessionState) lockRun() {
 	if s == nil || s.RunLock == nil {
 		return
@@ -1144,6 +1274,15 @@ func (s *sessionState) setUpdatedAt(updatedAt time.Time) {
 	s.UpdatedAt = updatedAt
 }
 
+func (s *sessionState) updatedAt() time.Time {
+	if s == nil {
+		return time.Time{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.UpdatedAt
+}
+
 func (s *Service) stopSession(key sessionKey) bool {
 	keyString := key.String()
 
@@ -1171,6 +1310,31 @@ func (s *Service) sessionStillActive(state *sessionState) bool {
 
 	current := s.sessions[state.Key.String()]
 	return current == state
+}
+
+func (s *Service) backgroundAndSessionCounts() (activeSessions int, queued int, running int, completed int, failed int, canceled int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	activeSessions = len(s.sessions)
+	for _, task := range s.tasks {
+		if task == nil {
+			continue
+		}
+		switch task.Status {
+		case backgroundTaskQueued:
+			queued++
+		case backgroundTaskRunning:
+			running++
+		case backgroundTaskCompleted:
+			completed++
+		case backgroundTaskFailed:
+			failed++
+		case backgroundTaskCanceled:
+			canceled++
+		}
+	}
+	return
 }
 
 func (s *Service) cancelAllSessions() {

@@ -217,6 +217,10 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 				Content:    result,
 				Timestamp:  r.messageTimestamp(time.Now().UTC()),
 			})
+
+			if call.Function.Name == "compact_context" {
+				workingHistory = r.applyExplicitContextCompaction(workingHistory, emit)
+			}
 		}
 	}
 
@@ -666,6 +670,10 @@ func approximateHistoryTokens(history []llm.Message) int {
 	return total
 }
 
+func EstimateHistoryTokens(history []llm.Message) int {
+	return approximateHistoryTokens(history)
+}
+
 func historySummaryLine(message llm.Message) string {
 	role := strings.TrimSpace(message.Role)
 	switch role {
@@ -721,4 +729,26 @@ func compact(value string, limit int) string {
 		return collapsed
 	}
 	return collapsed[:limit-3] + "..."
+}
+
+func (r *Runner) applyExplicitContextCompaction(history []llm.Message, emit func(Event)) []llm.Message {
+	beforeMessages := len(history)
+	beforeTokens := approximateHistoryTokens(history)
+	compacted := CompactHistoryForStorage(r.cfg, history)
+	afterMessages := len(compacted)
+	afterTokens := approximateHistoryTokens(compacted)
+	if emit != nil {
+		message := fmt.Sprintf(
+			"Context compacted (%d -> %d messages, %d -> %d est. tokens)",
+			beforeMessages,
+			afterMessages,
+			beforeTokens,
+			afterTokens,
+		)
+		if afterMessages == beforeMessages && afterTokens == beforeTokens {
+			message = fmt.Sprintf("Context compaction checked (unchanged at %d messages, %d est. tokens)", beforeMessages, beforeTokens)
+		}
+		emit(Event{Kind: EventStatus, Message: message, Time: time.Now()})
+	}
+	return compacted
 }
