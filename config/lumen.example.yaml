@@ -3,6 +3,7 @@ app:
   workspace_root: .
   session_dir: ./.lumen
   memory_dir: ./.lumen/memory
+  load_all_memory_shards: false
   max_agent_loops: 32
   max_tool_calls_per_turn: 96
   history_compaction:

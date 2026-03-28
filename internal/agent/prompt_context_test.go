@@ -56,6 +56,36 @@ func TestSystemPromptLoadsPersistentWorkspaceFiles(t *testing.T) {
 	}
 }
 
+func TestSystemPromptLoadsAllMemoryShardsWhenEnabled(t *testing.T) {
+	workspace := t.TempDir()
+	memoryRoot := filepath.Join(workspace, ".memory")
+	writeTestFile(t, memoryRoot, "MEMORY.md", "curated memory")
+	writeTestFile(t, memoryRoot, "2026-03-12-PM.md", "current shard")
+	writeTestFile(t, memoryRoot, "2026-03-12-AM.md", "previous shard")
+	writeTestFile(t, memoryRoot, "2026-03-11-PM.md", "older shard")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{
+		WorkspaceRoot:       workspace,
+		MemoryDir:           memoryRoot,
+		LoadAllMemoryShards: true,
+	}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: true,
+		Now:             time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"[BEGIN memory/2026-03-12-PM.md]",
+		"[BEGIN memory/2026-03-12-AM.md]",
+		"[BEGIN memory/2026-03-11-PM.md]",
+		"older shard",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
 func TestSystemPromptSkipsCuratedMemoryOutsidePrivateSessions(t *testing.T) {
 	workspace := t.TempDir()
 	memoryRoot := filepath.Join(workspace, ".memory")
@@ -103,6 +133,39 @@ func TestSystemPromptLoadsGuildMemoryForSharedChannelSessions(t *testing.T) {
 		"current shared shard",
 		"[BEGIN guild-memory/2026-03-12-AM.md]",
 		"previous shared shard",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptLoadsAllGuildMemoryShardsWhenEnabled(t *testing.T) {
+	workspace := t.TempDir()
+	sessionDir := filepath.Join(workspace, ".lumen")
+	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
+	writeTestFile(t, guildMemoryRoot, "MEMORY.md", "shared channel facts")
+	writeTestFile(t, guildMemoryRoot, "2026-03-12-PM.md", "current shared shard")
+	writeTestFile(t, guildMemoryRoot, "2026-03-12-AM.md", "previous shared shard")
+	writeTestFile(t, guildMemoryRoot, "2026-03-11-PM.md", "older shared shard")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{
+		WorkspaceRoot:       workspace,
+		SessionDir:          sessionDir,
+		LoadAllMemoryShards: true,
+	}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: false,
+		GuildID:         "guild-1",
+		ChannelID:       "channel-1",
+		Now:             time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"[BEGIN guild-memory/2026-03-12-PM.md]",
+		"[BEGIN guild-memory/2026-03-12-AM.md]",
+		"[BEGIN guild-memory/2026-03-11-PM.md]",
+		"older shared shard",
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)
@@ -381,6 +444,7 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"Workspace root: " + workspace,
 		"Session dir: " + sessionDir,
 		"Memory dir: " + memoryDir,
+		"Load all memory shards: disabled",
 		"Config file: " + filepath.Join(workspace, "config", "lumen.yaml"),
 		"History compaction: enabled (trigger=9000, target=5000, preserve_recent=10)",
 		"Message timestamps: enabled",

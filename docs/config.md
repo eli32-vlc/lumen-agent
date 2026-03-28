@@ -35,6 +35,7 @@ Important fields:
 - `workspace_root`: filesystem root available to tools
 - `session_dir`: where runtime state, logs, and session files live
 - `memory_dir`: durable memory directory
+- `load_all_memory_shards`: whether to load all shard files from the memory directory instead of only the current and previous half-day shards
 - `max_agent_loops`: max model/tool loop iterations per turn
 - `max_tool_calls_per_turn`: hard cap on tool calls from one model response
 - `history_compaction.*`: session compaction settings

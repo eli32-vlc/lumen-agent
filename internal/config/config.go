@@ -39,6 +39,7 @@ type AppConfig struct {
 	WorkspaceRoot       string                     `yaml:"workspace_root"`
 	SessionDir          string                     `yaml:"session_dir"`
 	MemoryDir           string                     `yaml:"memory_dir"`
+	LoadAllMemoryShards bool                       `yaml:"load_all_memory_shards"`
 	MaxAgentLoops       int                        `yaml:"max_agent_loops"`
 	MaxToolCallsPerTurn int                        `yaml:"max_tool_calls_per_turn"`
 	HistoryCompaction   AppHistoryCompactionConfig `yaml:"history_compaction"`
@@ -218,6 +219,7 @@ func defaultConfig() Config {
 			WorkspaceRoot:       ".",
 			SessionDir:          ".lumen",
 			MemoryDir:           "",
+			LoadAllMemoryShards: false,
 			MaxAgentLoops:       12,
 			MaxToolCallsPerTurn: 24,
 			HistoryCompaction: AppHistoryCompactionConfig{

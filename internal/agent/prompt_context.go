@@ -243,6 +243,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Workspace root: " + fallbackPromptValue(r.cfg.App.WorkspaceRoot, "unset"),
 		"Session dir: " + fallbackPromptValue(r.cfg.App.SessionDir, "unset"),
 		"Memory dir: " + fallbackPromptValue(r.cfg.App.MemoryDir, "unset"),
+		"Load all memory shards: " + promptBoolStatus(r.cfg.App.LoadAllMemoryShards),
 		"Config file: " + fallbackPromptValue(r.cfg.SourcePath(), "unset"),
 		"History compaction: " + promptHistoryCompactionSummary(r.cfg),
 		"Message timestamps: " + promptBoolStatus(r.cfg.LLM.InjectMessageTimestamps),
@@ -424,7 +425,7 @@ func (r *Runner) workspacePromptSections(conversation ConversationContext) []pro
 	}
 
 	if conversation.IsDirectMessage {
-		for _, fileName := range memoryShardFileNames(conversation.Now) {
+		for _, fileName := range memoryShardFileNamesForRoot(r.cfg, memoryRoot, conversation.Now) {
 			sectionName := filepath.ToSlash(filepath.Join("memory", fileName))
 			if section, ok := loadMemoryPromptSection(memoryRoot, fileName, sectionName); ok {
 				sections = append(sections, section)
@@ -437,7 +438,7 @@ func (r *Runner) workspacePromptSections(conversation ConversationContext) []pro
 		if section, ok := loadMemoryPromptSection(guildMemoryRoot, "MEMORY.md", "guild-memory/MEMORY.md"); ok {
 			sections = append(sections, section)
 		}
-		for _, fileName := range memoryShardFileNames(conversation.Now) {
+		for _, fileName := range memoryShardFileNamesForRoot(r.cfg, guildMemoryRoot, conversation.Now) {
 			sectionName := filepath.ToSlash(filepath.Join("guild-memory", fileName))
 			if section, ok := loadMemoryPromptSection(guildMemoryRoot, fileName, sectionName); ok {
 				sections = append(sections, section)
@@ -554,6 +555,44 @@ func memoryShardFileNames(now time.Time) []string {
 		memoryShardFileName(now),
 		memoryShardFileName(now.Add(-12 * time.Hour)),
 	}
+}
+
+func memoryShardFileNamesForRoot(cfg config.Config, memoryRoot string, now time.Time) []string {
+	if !cfg.App.LoadAllMemoryShards {
+		return memoryShardFileNames(now)
+	}
+
+	memoryRoot = strings.TrimSpace(memoryRoot)
+	if memoryRoot == "" {
+		return memoryShardFileNames(now)
+	}
+
+	entries, err := os.ReadDir(memoryRoot)
+	if err != nil {
+		return memoryShardFileNames(now)
+	}
+
+	fileNames := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.TrimSpace(entry.Name())
+		if name == "" || !strings.HasSuffix(strings.ToLower(name), ".md") {
+			continue
+		}
+		if strings.EqualFold(name, "MEMORY.md") {
+			continue
+		}
+		fileNames = append(fileNames, name)
+	}
+	if len(fileNames) == 0 {
+		return memoryShardFileNames(now)
+	}
+
+	slices.Sort(fileNames)
+	slices.Reverse(fileNames)
+	return fileNames
 }
 
 func memoryShardFileName(now time.Time) string {
