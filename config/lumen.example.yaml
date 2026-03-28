@@ -1,0 +1,137 @@
+app:
+  name: Lumen Agent
+  workspace_root: .
+  session_dir: ./.lumen
+  memory_dir: ./.lumen/memory
+  max_agent_loops: 32
+  max_tool_calls_per_turn: 96
+  history_compaction:
+    enabled: true
+    trigger_tokens: 12000
+    target_tokens: 7000
+    preserve_recent_messages: 16
+
+llm:
+  api_type: codex
+  base_url: https://api.openai.com/v1
+  api_key: ""
+  api_key_env: OPENAI_API_KEY
+  model: gpt-5.4
+  reasoning_effort: medium
+  temperature: 0.4
+  max_tokens: 3200
+  context_window_tokens: 28000
+  inject_message_timestamps: true
+  timeout: 180s
+  request_max_attempts: 3
+  retry_initial_backoff: 2s
+  retry_max_backoff: 8s
+  headers: {}
+
+tools:
+  enabled:
+    - send_discord_message
+    - add_discord_reaction
+    - discord_api_request
+    - read_file
+    - write_file
+    - replace_in_file
+    - list_dir
+    - grep_search
+    - mkdir
+    - move_path
+    - delete_path
+    - exec_command
+    - send_discord_file
+    - start_background_task
+    - list_background_tasks
+    - get_background_task
+    - get_background_task_logs
+    - cancel_background_task
+    - list_sandbox_containers
+    - inspect_sandbox_container
+    - create_sandbox_container
+    - start_sandbox_container
+    - stop_sandbox_container
+    - delete_sandbox_container
+    - search_gifs
+    - get_weather
+    - search_web
+    - search_news
+  exec_shell: /bin/zsh
+  exec_timeout: 120s
+  max_file_bytes: 1048576
+  max_search_results: 50
+  max_command_output_bytes: 65536
+  allowed_commands: []
+
+background_tasks:
+  default_min_runtime: 90s
+  inject_current_time: true
+  max_event_log_entries: 300
+  sandbox:
+    enabled: false
+    force: false
+    provider: nspawn
+    release: stable
+    architecture: amd64
+    mirror: http://deb.debian.org/debian/
+    machines_dir: ./.lumen/sandboxes
+    setup_timeout: 20m
+    auto_cleanup: true
+
+skills:
+  enabled: true
+  load:
+    user_dir: "~/.openclaw/skills"
+    bundled_dir: ../skills/bundled
+    extra_dirs: []
+
+discord:
+  bot_token: ""
+  allow_direct_messages: true
+  allowed_guild_ids: []
+  allowed_dm_user_ids: []
+  allowed_outbound_channel_ids: []
+  guild_session_scope: channel
+  reply_to_message: false
+  download_incoming_attachments: true
+  incoming_attachments_dir: ./.lumen/incoming-attachments
+
+gifs:
+  enabled: false
+  provider: giphy
+  api_key: ""
+  api_key_env: GIPHY_API_KEY
+  search_limit: 6
+  content_filter: pg-13
+
+heartbeat:
+  every: 30m
+  model: ""
+  light_context: false
+  isolated_session: true
+  ack_max_chars: 300
+  show_ok: false
+  show_alerts: true
+  use_indicator: true
+  event_poll_interval: 5s
+  active_hours:
+    timezone: ""
+    start: ""
+    end: ""
+  target:
+    guild_id: ""
+    channel_id: ""
+    user_id: ""
+
+event_webhook:
+  enabled: false
+  listen_addr: 127.0.0.1:8787
+  path: /event
+  secret: ""
+  secret_env: LUMEN_EVENT_WEBHOOK_SECRET
+  default_mode: now
+
+mcp:
+  servers: []

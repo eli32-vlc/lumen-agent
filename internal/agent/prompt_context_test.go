@@ -1,0 +1,406 @@
+package agent
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"lumen-agent/internal/config"
+	"lumen-agent/internal/skills"
+)
+
+func TestSystemPromptLoadsPersistentWorkspaceFiles(t *testing.T) {
+	workspace := t.TempDir()
+	memoryRoot := filepath.Join(workspace, ".memory")
+	writeTestFile(t, workspace, "BOOTSTRAP.md", "bootstrap ritual")
+	writeTestFile(t, workspace, "IDENTITY.md", "name: Lumen")
+	writeTestFile(t, workspace, "USER.md", "name: Eason")
+	writeTestFile(t, workspace, "SOUL.md", "# Who You Are")
+	writeTestFile(t, workspace, "CODEBASE.md", "cmd/lumen-agent/main.go: CLI entrypoint")
+	writeTestFile(t, workspace, "TASKS.md", "## Active\n- [ ] Finish repo audit")
+	writeTestFile(t, memoryRoot, "MEMORY.md", "curated memory")
+	writeTestFile(t, memoryRoot, "2026-03-12-PM.md", "current shard")
+	writeTestFile(t, memoryRoot, "2026-03-12-AM.md", "previous shard")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace, MemoryDir: memoryRoot}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: true,
+		Now:             time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"[BEGIN BOOTSTRAP.md]",
+		"bootstrap ritual",
+		"[BEGIN IDENTITY.md]",
+		"name: Lumen",
+		"[BEGIN USER.md]",
+		"name: Eason",
+		"[BEGIN SOUL.md]",
+		"# Who You Are",
+		"[BEGIN CODEBASE.md]",
+		"cmd/lumen-agent/main.go: CLI entrypoint",
+		"[BEGIN TASKS.md]",
+		"Finish repo audit",
+		"[BEGIN MEMORY.md]",
+		"curated memory",
+		"[BEGIN memory/2026-03-12-PM.md]",
+		"current shard",
+		"[BEGIN memory/2026-03-12-AM.md]",
+		"previous shard",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptSkipsCuratedMemoryOutsidePrivateSessions(t *testing.T) {
+	workspace := t.TempDir()
+	memoryRoot := filepath.Join(workspace, ".memory")
+	writeTestFile(t, memoryRoot, "MEMORY.md", "curated memory")
+	writeTestFile(t, memoryRoot, "2026-03-12-PM.md", "current shard")
+	writeTestFile(t, memoryRoot, "2026-03-12-AM.md", "previous shard")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace, MemoryDir: memoryRoot}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: false,
+		Now:             time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC),
+	})
+
+	if strings.Contains(prompt, "[BEGIN MEMORY.md]") {
+		t.Fatalf("expected MEMORY.md to stay out of shared contexts")
+	}
+	if strings.Contains(prompt, "[BEGIN memory/2026-03-12-PM.md]") {
+		t.Fatalf("did not expect current shard in shared context")
+	}
+	if strings.Contains(prompt, "[BEGIN memory/2026-03-12-AM.md]") {
+		t.Fatalf("did not expect previous shard in shared context")
+	}
+}
+
+func TestSystemPromptLoadsGuildMemoryForSharedChannelSessions(t *testing.T) {
+	workspace := t.TempDir()
+	sessionDir := filepath.Join(workspace, ".lumen")
+	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
+	writeTestFile(t, guildMemoryRoot, "MEMORY.md", "shared channel facts")
+	writeTestFile(t, guildMemoryRoot, "2026-03-12-PM.md", "current shared shard")
+	writeTestFile(t, guildMemoryRoot, "2026-03-12-AM.md", "previous shared shard")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace, SessionDir: sessionDir}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: false,
+		GuildID:         "guild-1",
+		ChannelID:       "channel-1",
+		Now:             time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"[BEGIN guild-memory/MEMORY.md]",
+		"shared channel facts",
+		"[BEGIN guild-memory/2026-03-12-PM.md]",
+		"current shared shard",
+		"[BEGIN guild-memory/2026-03-12-AM.md]",
+		"previous shared shard",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestMemoryShardPathsCrossDayBoundary(t *testing.T) {
+	paths := memoryShardPaths(time.Date(2026, 3, 12, 2, 30, 0, 0, time.UTC))
+	if len(paths) != 2 {
+		t.Fatalf("expected two shard paths, got %d", len(paths))
+	}
+	if paths[0] != "memory/2026-03-12-AM.md" {
+		t.Fatalf("unexpected current shard path %q", paths[0])
+	}
+	if paths[1] != "memory/2026-03-11-PM.md" {
+		t.Fatalf("unexpected previous shard path %q", paths[1])
+	}
+}
+
+func TestHeartbeatPromptLoadsHeartbeatChecklist(t *testing.T) {
+	workspace := t.TempDir()
+	writeTestFile(t, workspace, "IDENTITY.md", "name: Lumen")
+	writeTestFile(t, workspace, "HEARTBEAT.md", "- Check for pending follow-ups")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsHeartbeat: true,
+		Now:         time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Heartbeat mode:",
+		"[BEGIN HEARTBEAT.md]",
+		"Check for pending follow-ups",
+		"[BEGIN IDENTITY.md]",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected heartbeat prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestHeartbeatLightContextLoadsOnlyHeartbeatChecklist(t *testing.T) {
+	workspace := t.TempDir()
+	writeTestFile(t, workspace, "IDENTITY.md", "name: Lumen")
+	writeTestFile(t, workspace, "HEARTBEAT.md", "- Watch for urgent work")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsHeartbeat:  true,
+		LightContext: true,
+		Now:          time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	if !strings.Contains(prompt, "[BEGIN HEARTBEAT.md]") {
+		t.Fatalf("expected HEARTBEAT.md to be loaded in light context")
+	}
+	if strings.Contains(prompt, "[BEGIN IDENTITY.md]") {
+		t.Fatalf("did not expect IDENTITY.md in heartbeat light context")
+	}
+}
+
+func TestHeartbeatPromptLoadsLowercaseChecklistName(t *testing.T) {
+	workspace := t.TempDir()
+	writeTestFile(t, workspace, "heartbeat.md", "- [ ] Check nightly backup")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsHeartbeat: true,
+		Now:         time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	if !strings.Contains(prompt, "[BEGIN heartbeat.md]") && !strings.Contains(prompt, "[BEGIN HEARTBEAT.md]") {
+		t.Fatalf("expected heartbeat checklist section to be loaded")
+	}
+	if !strings.Contains(prompt, "Check nightly backup") {
+		t.Fatalf("expected lowercase heartbeat.md content to be included")
+	}
+}
+
+func TestSystemPromptLoadsLowercaseTasksName(t *testing.T) {
+	workspace := t.TempDir()
+	writeTestFile(t, workspace, "tasks.md", "## Active\n- [ ] Ship patch")
+
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		Now: time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	if !strings.Contains(prompt, "[BEGIN tasks.md]") && !strings.Contains(prompt, "[BEGIN TASKS.md]") {
+		t.Fatalf("expected tasks section to be loaded")
+	}
+	if !strings.Contains(prompt, "Ship patch") {
+		t.Fatalf("expected tasks.md content to be included")
+	}
+}
+
+func TestSystemPromptInjectsSkillSnapshotXML(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		Skills: []skills.Summary{{
+			Name:        "github",
+			Description: "Use repository workflows",
+			Location:    "/tmp/skills/github",
+		}},
+		Now: time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Available session skills:",
+		"<skills>",
+		"name=\"github\"",
+		"description=\"Use repository workflows\"",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptInjectsWakeUpTimeWithoutWorkspaceFiles(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		Now: time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Wake-up context:",
+		"Current time: 2026-03-12 15:04 UTC (Thursday)",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptStrengthensAutonomyGuidance(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		Now: time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Take sensible initiative.",
+		"When the next step is obvious, useful, and low-risk, do it instead of waiting for permission.",
+		"CODEBASE.md is an optional durable map of the workspace architecture, key directories, and what important files are responsible for.",
+		"Build and maintain a concrete mental map of the repository: which files exist, what each relevant file does, and how the moving parts connect.",
+		"If CODEBASE.md exists, use it as the durable high-level map of the codebase.",
+		"You may create or update skills when repeated work, team-specific workflows, or tool-specific playbooks would benefit from a reusable manual.",
+		"TASKS.md is an optional durable task queue for ongoing work, next actions, blockers, and completed items.",
+		"TASKS.md (or tasks.md) is optional, but when work spans multiple steps, multiple turns, or pending follow-up, you may create or update it.",
+		"Prefer advancing an existing task in TASKS.md over asking the user broad \"what next?\" questions when the next useful step is already clear.",
+		"When the user's intent is clear, try to finish the job end-to-end in the same turn instead of stopping at partial progress.",
+		"Use tools proactively for inspection, edits, and verification when they materially help you complete the task well.",
+		"After useful tool results, keep going toward completion unless you hit a real blocker.",
+		"Treat the runtime metadata and loaded workspace files in this prompt as ground truth for the current session.",
+		"When reporting background-task progress, rely on verified task state, event logs, or tool output rather than stale assumptions.",
+		"If an uploaded file path appears in the prompt, treat that downloaded local path as the primary artifact to inspect.",
+		"If context feels thin, rely on the loaded summaries, durable files, recent messages, and tools; do not invent continuity.",
+		"Reserve confirmation for destructive, high-risk, expensive, identity-changing, or genuinely ambiguous actions.",
+		"If you cannot finish, explain the blocker and the best next step instead of asking broad, unnecessary questions.",
+		"During heartbeat runs, prefer action over follow-up questions: complete obvious low-risk steps without asking for confirmation.",
+		"If a heartbeat task is ambiguous but has a safe default, choose the default and continue; only escalate when blocked or high-risk.",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptIncludesSharedChannelSilenceGuidance(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: false,
+		Now:             time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Conversation type: shared guild channel",
+		"one coherent channel presence across multiple speakers",
+		"exact token <NO_REPLY>",
+		"Do not spam the channel with filler updates, repeated summaries, or \"still working\" messages that do not add new verified information.",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptMarksBackgroundTaskMode(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsBackgroundTask: true,
+		Now:              time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Execution mode: background task",
+		"do not spawn another background task",
+		"check that the requested output actually exists",
+		"minimum runtime target, treat it as a floor rather than a hint",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
+	workspace := t.TempDir()
+	sessionDir := filepath.Join(workspace, ".lumen")
+	memoryDir := filepath.Join(sessionDir, "memory")
+	cfg := config.Config{
+		App: config.AppConfig{
+			Name:          "Lumen Agent",
+			WorkspaceRoot: workspace,
+			SessionDir:    sessionDir,
+			MemoryDir:     memoryDir,
+			HistoryCompaction: config.AppHistoryCompactionConfig{
+				Enabled:                true,
+				TriggerTokens:          9000,
+				TargetTokens:           5000,
+				PreserveRecentMessages: 10,
+			},
+		},
+		LLM: config.LLMConfig{
+			APIType:                 "codex",
+			BaseURL:                 "https://api.example.test/v1",
+			Model:                   "gpt-5.4",
+			ReasoningEffort:         "medium",
+			InjectMessageTimestamps: true,
+		},
+		Discord: config.DiscordConfig{
+			DownloadIncomingAttachments: true,
+			IncomingAttachmentsDir:      filepath.Join(sessionDir, "incoming-attachments"),
+		},
+		BackgroundTasks: config.BackgroundTasksConfig{
+			DefaultMinRuntime: "90s",
+			InjectCurrentTime: true,
+			Sandbox: config.BackgroundTaskSandboxConfig{
+				Enabled:      true,
+				Force:        false,
+				Provider:     "nspawn",
+				Release:      "stable",
+				Architecture: "amd64",
+				MachinesDir:  filepath.Join(sessionDir, "sandboxes"),
+			},
+		},
+		MCP: config.MCPConfig{
+			Servers: []config.MCPServerConfig{
+				{Name: "browser", Enabled: true},
+				{Name: "mail", Enabled: false},
+			},
+		},
+	}
+	cfg.SetSourcePath(filepath.Join(workspace, "config", "lumen.yaml"))
+	runner := &Runner{cfg: cfg}
+	prompt := runner.systemPrompt(ConversationContext{
+		ModelOverride: "gpt-5.5-preview",
+		Now:           time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Runtime metadata:",
+		"Agent name: Lumen Agent",
+		"Model: gpt-5.5-preview",
+		"Provider: codex",
+		"Provider base URL: https://api.example.test/v1",
+		"Workspace root: " + workspace,
+		"Session dir: " + sessionDir,
+		"Memory dir: " + memoryDir,
+		"Config file: " + filepath.Join(workspace, "config", "lumen.yaml"),
+		"History compaction: enabled (trigger=9000, target=5000, preserve_recent=10)",
+		"Message timestamps: enabled",
+		"Incoming attachment downloads: enabled -> " + filepath.Join(sessionDir, "incoming-attachments"),
+		"Background tasks: min_runtime=90s, time_injection=enabled, sandbox=nspawn, force=disabled",
+		"Enabled MCP servers: browser",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func writeTestFile(t *testing.T, root string, relativePath string, content string) {
+	t.Helper()
+
+	path := filepath.Join(root, relativePath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
