@@ -27,6 +27,7 @@ type EventKind string
 const (
 	EventStatus       EventKind = "status"
 	EventAssistant    EventKind = "assistant"
+	EventModelDone    EventKind = "model_done"
 	EventToolStarted  EventKind = "tool_started"
 	EventToolFinished EventKind = "tool_finished"
 )
@@ -38,6 +39,9 @@ type Event struct {
 	Detail     string
 	FullDetail string
 	Time       time.Time
+	DurationMS int64
+	TokenCount int
+	Success    bool
 }
 
 type Runner struct {
@@ -110,6 +114,7 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 	for step := 0; step < r.cfg.App.MaxAgentLoops; step++ {
 		emit(Event{Kind: EventStatus, Message: "Contacting model", Time: time.Now()})
 
+		modelStart := time.Now()
 		response, err := r.chatWithRetry(ctx, llm.Request{
 			Model:           model,
 			Messages:        r.withSystemPrompt(workingHistory, conversation),
@@ -132,6 +137,14 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 			ResponseItems: response.ResponseItems,
 			Timestamp:     r.messageTimestamp(responseTime),
 		}
+		emit(Event{
+			Kind:       EventModelDone,
+			Message:    "Model replied",
+			Time:       time.Now(),
+			DurationMS: time.Since(modelStart).Milliseconds(),
+			TokenCount: approximateMessageTokens(assistantMessage),
+			Success:    true,
+		})
 		workingHistory = append(workingHistory, assistantMessage)
 
 		if strings.TrimSpace(response.Content) != "" {
@@ -188,55 +201,144 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 			}
 		}
 
-		for _, call := range toolCalls {
-			callTime := time.Now().UTC()
-			emit(Event{
-				Kind:       EventToolStarted,
-				ToolName:   call.Function.Name,
-				Detail:     compact(call.Function.Arguments, 220),
-				FullDetail: call.Function.Arguments,
-				Time:       callTime,
-			})
-
-			callCtx := tools.WithBackgroundTaskRuntimeContext(ctx, tools.BackgroundTaskRuntimeContext{
-				History:     cloneMessages(workingHistory),
-				RequestedAt: callTime,
-			})
-			result, err := r.registry.Execute(callCtx, call)
-			if err != nil {
-				result = toolErrorResult(call.Function.Name, err)
-				emit(Event{
-					Kind:       EventToolFinished,
-					ToolName:   call.Function.Name,
-					Detail:     "error: " + err.Error(),
-					FullDetail: result,
-					Time:       time.Now(),
-				})
-			} else {
-				emit(Event{
-					Kind:       EventToolFinished,
-					ToolName:   call.Function.Name,
-					Detail:     compact(result, 220),
-					FullDetail: result,
-					Time:       time.Now(),
-				})
-			}
-
+		results := r.executeToolCalls(ctx, workingHistory, toolCalls, emit)
+		for _, item := range results {
 			workingHistory = append(workingHistory, llm.Message{
 				Role:       "tool",
-				Name:       call.Function.Name,
-				ToolCallID: call.ID,
-				Content:    result,
+				Name:       item.Call.Function.Name,
+				ToolCallID: item.Call.ID,
+				Content:    item.Result,
 				Timestamp:  r.messageTimestamp(time.Now().UTC()),
 			})
 
-			if call.Function.Name == "compact_context" {
+			if item.Call.Function.Name == "compact_context" {
 				workingHistory = r.applyExplicitContextCompaction(workingHistory, emit)
 			}
 		}
 	}
 
 	return workingHistory, fmt.Errorf("agent stopped after %d tool loops", r.cfg.App.MaxAgentLoops)
+}
+
+type toolExecutionResult struct {
+	Call   llm.ToolCall
+	Result string
+	Err    error
+}
+
+func (r *Runner) executeToolCalls(ctx context.Context, history []llm.Message, toolCalls []llm.ToolCall, emit func(Event)) []toolExecutionResult {
+	results := make([]toolExecutionResult, len(toolCalls))
+	if len(toolCalls) == 0 {
+		return results
+	}
+
+	if r.canExecuteToolCallsInParallel(toolCalls) {
+		emit(Event{
+			Kind:    EventStatus,
+			Message: "Parallel tool batch",
+			Detail:  fmt.Sprintf("%d parallel-safe tool calls", len(toolCalls)),
+			Time:    time.Now(),
+		})
+		type indexedResult struct {
+			index int
+			item  toolExecutionResult
+		}
+		historySnapshot := cloneMessages(history)
+		resultCh := make(chan indexedResult, len(toolCalls))
+		for idx, call := range toolCalls {
+			go func(index int, toolCall llm.ToolCall) {
+				resultCh <- indexedResult{
+					index: index,
+					item:  r.executeSingleToolCall(ctx, historySnapshot, toolCall, emit),
+				}
+			}(idx, call)
+		}
+		for range toolCalls {
+			item := <-resultCh
+			results[item.index] = item.item
+		}
+		return results
+	}
+
+	for idx, call := range toolCalls {
+		results[idx] = r.executeSingleToolCall(ctx, history, call, emit)
+	}
+	return results
+}
+
+func (r *Runner) executeSingleToolCall(ctx context.Context, history []llm.Message, call llm.ToolCall, emit func(Event)) toolExecutionResult {
+	callTime := time.Now().UTC()
+	emit(Event{
+		Kind:       EventToolStarted,
+		ToolName:   call.Function.Name,
+		Detail:     compact(call.Function.Arguments, 220),
+		FullDetail: call.Function.Arguments,
+		Time:       callTime,
+	})
+
+	callCtx := tools.WithBackgroundTaskRuntimeContext(ctx, tools.BackgroundTaskRuntimeContext{
+		History:     cloneMessages(history),
+		RequestedAt: callTime,
+	})
+	start := time.Now()
+	result, err := r.registry.Execute(callCtx, call)
+	durationMS := time.Since(start).Milliseconds()
+	if err != nil {
+		result = toolErrorResult(call.Function.Name, err)
+		emit(Event{
+			Kind:       EventToolFinished,
+			ToolName:   call.Function.Name,
+			Detail:     "error: " + err.Error(),
+			FullDetail: result,
+			Time:       time.Now(),
+			DurationMS: durationMS,
+			Success:    false,
+		})
+		return toolExecutionResult{Call: call, Result: result, Err: err}
+	}
+
+	emit(Event{
+		Kind:       EventToolFinished,
+		ToolName:   call.Function.Name,
+		Detail:     compact(result, 220),
+		FullDetail: result,
+		Time:       time.Now(),
+		DurationMS: durationMS,
+		Success:    true,
+	})
+	return toolExecutionResult{Call: call, Result: result}
+}
+
+func (r *Runner) canExecuteToolCallsInParallel(toolCalls []llm.ToolCall) bool {
+	if len(toolCalls) < 2 {
+		return false
+	}
+	for _, call := range toolCalls {
+		if !isParallelSafeTool(call.Function.Name) {
+			return false
+		}
+	}
+	return true
+}
+
+func isParallelSafeTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "read_file",
+		"list_dir",
+		"grep_search",
+		"search_web",
+		"search_news",
+		"get_weather",
+		"search_gifs",
+		"list_background_tasks",
+		"get_background_task",
+		"get_background_task_logs",
+		"list_sandbox_containers",
+		"inspect_sandbox_container":
+		return true
+	default:
+		return false
+	}
 }
 
 func shouldAutoFollowThrough(messages []llm.Message) bool {

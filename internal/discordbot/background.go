@@ -264,6 +264,7 @@ func (s *Service) logBackgroundTaskEvent(taskID string, event agent.Event) {
 	if strings.TrimSpace(taskID) == "" {
 		return
 	}
+	s.recordRuntimeEvent(event)
 
 	s.updateBackgroundTask(taskID, func(task *backgroundTask) {
 		task.Events = append(task.Events, tools.BackgroundTaskEvent{
@@ -285,7 +286,9 @@ func (s *Service) logBackgroundTaskEvent(taskID string, event agent.Event) {
 	case agent.EventToolStarted:
 		s.audit.Write("background_tool_start", taskID, map[string]any{"tool": event.ToolName, "detail": event.Detail, "full_detail": event.FullDetail})
 	case agent.EventToolFinished:
-		s.audit.Write("background_tool_done", taskID, map[string]any{"tool": event.ToolName, "detail": event.Detail, "full_detail": event.FullDetail})
+		s.audit.Write("background_tool_done", taskID, map[string]any{"tool": event.ToolName, "detail": event.Detail, "full_detail": event.FullDetail, "duration_ms": event.DurationMS, "success": event.Success})
+	case agent.EventModelDone:
+		s.audit.Write("background_model_done", taskID, map[string]any{"duration_ms": event.DurationMS, "tokens": event.TokenCount})
 	case agent.EventStatus:
 		s.audit.Write("background_status", taskID, map[string]any{"message": event.Message, "detail": event.Detail, "full_detail": event.FullDetail})
 	case agent.EventAssistant:

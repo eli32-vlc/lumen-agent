@@ -63,6 +63,17 @@ type Service struct {
 	application string
 	sessions    map[string]*sessionState
 	tasks       map[string]*backgroundTask
+	stats       runtimeStats
+}
+
+type runtimeStats struct {
+	ModelResponses      int64
+	ModelOutputTokens   int64
+	ModelResponseMS     int64
+	ToolCalls           int64
+	ToolFailures        int64
+	ToolDurationMS      int64
+	ParallelToolBatches int64
 }
 
 type sessionKey struct {
@@ -1066,6 +1077,7 @@ func clearNoReplyToken(history []llm.Message, previousLen int) []llm.Message {
 }
 
 func (s *Service) logAgentEvent(state *sessionState, event agent.Event) {
+	s.recordRuntimeEvent(event)
 	switch event.Kind {
 	case agent.EventToolStarted:
 		s.audit.Write("tool_start", state.ID, map[string]any{
@@ -1074,8 +1086,15 @@ func (s *Service) logAgentEvent(state *sessionState, event agent.Event) {
 		})
 	case agent.EventToolFinished:
 		s.audit.Write("tool_done", state.ID, map[string]any{
-			"tool":   event.ToolName,
-			"detail": event.Detail,
+			"tool":        event.ToolName,
+			"detail":      event.Detail,
+			"duration_ms": event.DurationMS,
+			"success":     event.Success,
+		})
+	case agent.EventModelDone:
+		s.audit.Write("model_done", state.ID, map[string]any{
+			"duration_ms": event.DurationMS,
+			"tokens":      event.TokenCount,
 		})
 	case agent.EventStatus:
 		s.audit.Write("status", state.ID, map[string]any{"message": event.Message})
@@ -1224,6 +1243,12 @@ func (s *Service) statusReport(key sessionKey) string {
 			contextWindowBar(estimate),
 			"```",
 			"",
+			"**Runtime**",
+			"```text",
+			s.runtimeSpeedLine(),
+			s.runtimeToolHealthLine(),
+			"```",
+			"",
 			"**Background**",
 			"```text",
 			backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
@@ -1252,6 +1277,12 @@ func (s *Service) statusReport(key sessionKey) string {
 		fmt.Sprintf("📦 Base prompt + memory: ~%d tokens", estimate.SystemPromptTokens),
 		fmt.Sprintf("🗂️ History in window: ~%d tokens across %d messages", estimate.HistoryTokensAfter, estimate.HistoryMessagesAfter),
 		statusHistoryTrimLine(estimate),
+		"```",
+		"",
+		"**Runtime**",
+		"```text",
+		s.runtimeSpeedLine(),
+		s.runtimeToolHealthLine(),
 		"```",
 		"",
 		"**Background**",
@@ -1355,6 +1386,58 @@ func statusHistoryTrimLine(estimate agent.ContextUsageEstimate) string {
 		estimate.HistoryMessagesBefore,
 		estimate.HistoryMessagesAfter,
 	)
+}
+
+func (s *Service) recordRuntimeEvent(event agent.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch event.Kind {
+	case agent.EventModelDone:
+		s.stats.ModelResponses++
+		s.stats.ModelOutputTokens += int64(event.TokenCount)
+		s.stats.ModelResponseMS += event.DurationMS
+	case agent.EventToolFinished:
+		s.stats.ToolCalls++
+		if !event.Success {
+			s.stats.ToolFailures++
+		}
+		s.stats.ToolDurationMS += event.DurationMS
+	case agent.EventStatus:
+		if strings.TrimSpace(event.Message) == "Parallel tool batch" {
+			s.stats.ParallelToolBatches++
+		}
+	}
+}
+
+func (s *Service) runtimeSpeedLine() string {
+	s.mu.RLock()
+	stats := s.stats
+	s.mu.RUnlock()
+
+	if stats.ModelResponses == 0 || stats.ModelResponseMS <= 0 || stats.ModelOutputTokens <= 0 {
+		return "⚡ Model speed: warming up, not enough data yet"
+	}
+
+	tps := float64(stats.ModelOutputTokens) / (float64(stats.ModelResponseMS) / 1000.0)
+	return fmt.Sprintf("⚡ Model speed: ~%.1f tok/s across %d replies", tps, stats.ModelResponses)
+}
+
+func (s *Service) runtimeToolHealthLine() string {
+	s.mu.RLock()
+	stats := s.stats
+	s.mu.RUnlock()
+
+	if stats.ToolCalls == 0 {
+		return "🧰 Tool health: no tool calls yet"
+	}
+
+	okRate := float64(stats.ToolCalls-stats.ToolFailures) * 100.0 / float64(stats.ToolCalls)
+	avgLatency := float64(stats.ToolDurationMS) / float64(stats.ToolCalls)
+	if stats.ParallelToolBatches > 0 {
+		return fmt.Sprintf("🧰 Tool health: %d failures out of %d calls, %.0f%% ok, avg %.0f ms, parallel batches %d", stats.ToolFailures, stats.ToolCalls, okRate, avgLatency, stats.ParallelToolBatches)
+	}
+	return fmt.Sprintf("🧰 Tool health: %d failures out of %d calls, %.0f%% ok, avg %.0f ms", stats.ToolFailures, stats.ToolCalls, okRate, avgLatency)
 }
 
 func (s *Service) memoryReport(key sessionKey) string {
