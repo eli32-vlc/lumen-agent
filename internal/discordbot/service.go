@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +29,7 @@ import (
 const (
 	newCommandName         = "new"
 	statusCommandName      = "status"
+	memoryCommandName      = "memory"
 	compactCommandName     = "compact"
 	stopCommandName        = "stop"
 	typingInterval         = 8 * time.Second
@@ -228,6 +231,10 @@ func (s *Service) syncCommands() error {
 			Description: "Show session, background task, and context-window status for this channel",
 		},
 		{
+			Name:        memoryCommandName,
+			Description: "Show memory shard status and what memory this channel is loading",
+		},
+		{
 			Name:        compactCommandName,
 			Description: "Compact the current session history for this channel",
 		},
@@ -266,6 +273,8 @@ func (s *Service) handleInteractionCreate(_ *discordgo.Session, interaction *dis
 		s.handleNewCommand(interaction)
 	case statusCommandName:
 		s.handleStatusCommand(interaction)
+	case memoryCommandName:
+		s.handleMemoryCommand(interaction)
 	case compactCommandName:
 		s.handleCompactCommand(interaction)
 	case stopCommandName:
@@ -386,6 +395,24 @@ func (s *Service) handleCompactCommand(interaction *discordgo.InteractionCreate)
 		return
 	}
 	s.respondToInteraction(interaction, message, false)
+}
+
+func (s *Service) handleMemoryCommand(interaction *discordgo.InteractionCreate) {
+	if interaction == nil {
+		return
+	}
+
+	userID := interactionUserID(interaction)
+	if userID == "" {
+		return
+	}
+	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
+		s.respondToInteraction(interaction, reason, false)
+		return
+	}
+
+	key := s.sessionKey(interaction.GuildID, interaction.ChannelID, userID)
+	s.respondToInteraction(interaction, s.memoryReport(key), false)
 }
 
 func (s *Service) handleMessageCreate(_ *discordgo.Session, message *discordgo.MessageCreate) {
@@ -1328,6 +1355,259 @@ func statusHistoryTrimLine(estimate agent.ContextUsageEstimate) string {
 		estimate.HistoryMessagesBefore,
 		estimate.HistoryMessagesAfter,
 	)
+}
+
+func (s *Service) memoryReport(key sessionKey) string {
+	now := time.Now()
+	memoryRoot := strings.TrimSpace(s.cfg.App.MemoryDir)
+	if key.GuildID != "" && s.cfg.SharedGuildSessions() {
+		memoryRoot = filepath.Join(s.cfg.App.SessionDir, "guild-memory", key.GuildID, key.ChannelID)
+	}
+
+	info := inspectMemoryRoot(s.cfg, memoryRoot, now)
+
+	lines := []string{
+		"## 🧠 Memory",
+		"",
+		"**Overview**",
+		"```text",
+		"Status: " + info.Status,
+		"Memory root: " + info.DisplayRoot,
+		"Shard loading: " + info.ShardLoading,
+		"Total shard files: " + strconv.Itoa(info.TotalShardFiles),
+		"Loaded this turn: " + strconv.Itoa(info.LoadedThisTurn),
+		"Earliest memory: " + info.EarliestMemory,
+		"Latest memory: " + info.LatestMemory,
+		"```",
+		"",
+		"**Current picture**",
+		"```text",
+		fmt.Sprintf("|- total memory size: %s", humanizeBytes(info.TotalMemoryBytes)),
+		fmt.Sprintf("|- estimated prompt cost when loaded: ~%s tokens", humanizeApproxNumber(info.EstimatedPromptTokens)),
+		fmt.Sprintf("|- last shard written: %s", info.LastShardWritten),
+		fmt.Sprintf("`- mode: %s", info.Mode),
+		"```",
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+type memoryReportInfo struct {
+	Status                string
+	DisplayRoot           string
+	ShardLoading          string
+	TotalShardFiles       int
+	LoadedThisTurn        int
+	EarliestMemory        string
+	LatestMemory          string
+	TotalMemoryBytes      int64
+	EstimatedPromptTokens int
+	LastShardWritten      string
+	Mode                  string
+}
+
+type memoryFileInfo struct {
+	Name    string
+	Path    string
+	Size    int64
+	ModTime time.Time
+}
+
+func inspectMemoryRoot(cfg config.Config, memoryRoot string, now time.Time) memoryReportInfo {
+	info := memoryReportInfo{
+		Status:           "enabled",
+		DisplayRoot:      displayPath(memoryRoot, cfg.App.WorkspaceRoot),
+		ShardLoading:     memoryLoadingModeLabel(cfg),
+		EarliestMemory:   "none yet",
+		LatestMemory:     "none yet",
+		LastShardWritten: "none yet",
+		Mode:             "append-only shard memory",
+	}
+	if strings.TrimSpace(info.DisplayRoot) == "" {
+		info.DisplayRoot = "(not configured)"
+		info.Status = "disabled"
+		info.Mode = "memory unavailable"
+		return info
+	}
+
+	entries, err := os.ReadDir(memoryRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return info
+		}
+		info.Status = "unavailable"
+		info.Mode = "memory root unreadable"
+		return info
+	}
+
+	shardFiles := make([]memoryFileInfo, 0, len(entries))
+	loadedBytes := int64(0)
+	loadedTokenEstimate := 0
+	loadedNames := memoryShardNamesForReport(cfg, now, entries)
+	loadedSet := make(map[string]struct{}, len(loadedNames))
+	for _, name := range loadedNames {
+		loadedSet[strings.TrimSpace(name)] = struct{}{}
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.TrimSpace(entry.Name())
+		if name == "" || !strings.HasSuffix(strings.ToLower(name), ".md") {
+			continue
+		}
+		path := filepath.Join(memoryRoot, name)
+		fileInfo, statErr := entry.Info()
+		if statErr != nil {
+			continue
+		}
+		if strings.EqualFold(name, "MEMORY.md") {
+			info.TotalMemoryBytes += fileInfo.Size()
+			if content, readErr := os.ReadFile(path); readErr == nil {
+				loadedBytes += int64(len(content))
+				loadedTokenEstimate += estimateTextTokens(string(content))
+			}
+			continue
+		}
+		shard := memoryFileInfo{
+			Name:    name,
+			Path:    path,
+			Size:    fileInfo.Size(),
+			ModTime: fileInfo.ModTime(),
+		}
+		shardFiles = append(shardFiles, shard)
+		info.TotalMemoryBytes += fileInfo.Size()
+		if _, ok := loadedSet[name]; ok {
+			if content, readErr := os.ReadFile(path); readErr == nil {
+				loadedBytes += int64(len(content))
+				loadedTokenEstimate += estimateTextTokens(string(content))
+			}
+		}
+	}
+
+	info.TotalShardFiles = len(shardFiles)
+	info.LoadedThisTurn = len(loadedNames)
+	if !cfg.App.LoadAllMemoryShards && info.LoadedThisTurn > info.TotalShardFiles {
+		info.LoadedThisTurn = info.TotalShardFiles
+	}
+	info.EstimatedPromptTokens = loadedTokenEstimate
+
+	if len(shardFiles) == 0 {
+		return info
+	}
+
+	slices.SortFunc(shardFiles, func(a memoryFileInfo, b memoryFileInfo) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	info.EarliestMemory = formatMemoryTimestamp(shardFiles[0].ModTime)
+	info.LatestMemory = formatMemoryTimestamp(shardFiles[len(shardFiles)-1].ModTime)
+
+	latestWritten := shardFiles[0]
+	for _, shard := range shardFiles[1:] {
+		if shard.ModTime.After(latestWritten.ModTime) {
+			latestWritten = shard
+		}
+	}
+	info.LastShardWritten = formatMemoryTimestamp(latestWritten.ModTime)
+
+	return info
+}
+
+func memoryLoadingModeLabel(cfg config.Config) string {
+	if cfg.App.LoadAllMemoryShards {
+		return "all shard files"
+	}
+	return "current + previous half-day"
+}
+
+func memoryShardNamesForReport(cfg config.Config, now time.Time, entries []os.DirEntry) []string {
+	if !cfg.App.LoadAllMemoryShards {
+		return []string{
+			memoryShardFileName(now),
+			memoryShardFileName(now.Add(-12 * time.Hour)),
+		}
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.TrimSpace(entry.Name())
+		if name == "" || !strings.HasSuffix(strings.ToLower(name), ".md") {
+			continue
+		}
+		if strings.EqualFold(name, "MEMORY.md") {
+			continue
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	slices.Reverse(names)
+	return names
+}
+
+func memoryShardFileName(now time.Time) string {
+	period := "AM"
+	if now.Hour() >= 12 {
+		period = "PM"
+	}
+	return now.Format("2006-01-02") + "-" + period + ".md"
+}
+
+func displayPath(path string, workspaceRoot string) string {
+	path = strings.TrimSpace(path)
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if path == "" {
+		return ""
+	}
+	if workspaceRoot == "" {
+		return path
+	}
+	if rel, err := filepath.Rel(workspaceRoot, path); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		return "./" + filepath.ToSlash(rel)
+	}
+	if samePath(path, workspaceRoot) {
+		return "."
+	}
+	return filepath.ToSlash(path)
+}
+
+func samePath(a string, b string) bool {
+	return filepath.Clean(strings.TrimSpace(a)) == filepath.Clean(strings.TrimSpace(b))
+}
+
+func formatMemoryTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return "none yet"
+	}
+	return value.In(time.Local).Format("2006-01-02 15:04 MST")
+}
+
+func humanizeBytes(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	if size < 1024*1024 {
+		return fmt.Sprintf("~%d KB", (size+1023)/1024)
+	}
+	return fmt.Sprintf("~%.1f MB", float64(size)/1024.0/1024.0)
+}
+
+func humanizeApproxNumber(value int) string {
+	if value >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(value)/1000.0)
+	}
+	return strconv.Itoa(value)
+}
+
+func estimateTextTokens(content string) int {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return 0
+	}
+	return (len(content) + 3) / 4
 }
 
 func (s *Service) compactSessionForKey(key sessionKey) (string, error) {

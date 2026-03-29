@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -234,6 +235,105 @@ func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
 		if !contains(report, snippet) {
 			t.Fatalf("expected report to contain %q, got:\n%s", snippet, report)
 		}
+	}
+}
+
+func TestMemoryReportShowsShardSummary(t *testing.T) {
+	key := sessionKey{GuildID: "", ChannelID: "dm-channel", UserID: "user"}
+	workspace := t.TempDir()
+	memoryRoot := filepath.Join(workspace, ".lumen", "memory")
+	if err := os.MkdirAll(memoryRoot, 0o755); err != nil {
+		t.Fatalf("mkdir memory root: %v", err)
+	}
+
+	curatedPath := filepath.Join(memoryRoot, "MEMORY.md")
+	currentPath := filepath.Join(memoryRoot, "2026-03-29-PM.md")
+	previousPath := filepath.Join(memoryRoot, "2026-03-29-AM.md")
+	olderPath := filepath.Join(memoryRoot, "2026-03-28-PM.md")
+	for _, item := range []struct {
+		path    string
+		content string
+		modTime time.Time
+	}{
+		{curatedPath, "curated memory", time.Date(2026, 3, 29, 8, 30, 0, 0, time.UTC)},
+		{currentPath, "current shard", time.Date(2026, 3, 29, 3, 11, 0, 0, time.UTC)},
+		{previousPath, "previous shard", time.Date(2026, 3, 29, 2, 58, 0, 0, time.UTC)},
+		{olderPath, "older shard", time.Date(2026, 3, 28, 22, 14, 0, 0, time.UTC)},
+	} {
+		if err := os.WriteFile(item.path, []byte(item.content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", item.path, err)
+		}
+		if err := os.Chtimes(item.path, item.modTime, item.modTime); err != nil {
+			t.Fatalf("chtimes %s: %v", item.path, err)
+		}
+	}
+
+	service := &Service{
+		cfg: config.Config{
+			App: config.AppConfig{
+				WorkspaceRoot:       workspace,
+				SessionDir:          filepath.Join(workspace, ".lumen"),
+				MemoryDir:           memoryRoot,
+				LoadAllMemoryShards: false,
+			},
+		},
+	}
+
+	originalLocal := time.Local
+	time.Local = time.FixedZone("AEST", 10*60*60)
+	defer func() { time.Local = originalLocal }()
+
+	report := service.memoryReport(key)
+	for _, snippet := range []string{
+		"## 🧠 Memory",
+		"Status: enabled",
+		"Memory root: ./.lumen/memory",
+		"Shard loading: current + previous half-day",
+		"Total shard files: 3",
+		"Loaded this turn: 2",
+		"Earliest memory: 2026-03-29 08:14 AEST",
+		"Latest memory: 2026-03-29 13:11 AEST",
+		"Current picture",
+		"|- total memory size:",
+		"|- estimated prompt cost when loaded: ~",
+		"|- last shard written: 2026-03-29 13:11 AEST",
+		"`- mode: append-only shard memory",
+	} {
+		if !contains(report, snippet) {
+			t.Fatalf("expected memory report to contain %q, got:\n%s", snippet, report)
+		}
+	}
+}
+
+func TestMemoryReportUsesSharedGuildMemoryRoot(t *testing.T) {
+	key := sessionKey{GuildID: "guild-1", ChannelID: "channel-1", UserID: "user-1"}
+	workspace := t.TempDir()
+	sessionDir := filepath.Join(workspace, ".lumen")
+	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
+	if err := os.MkdirAll(guildMemoryRoot, 0o755); err != nil {
+		t.Fatalf("mkdir guild memory root: %v", err)
+	}
+	path := filepath.Join(guildMemoryRoot, "2026-03-29-PM.md")
+	if err := os.WriteFile(path, []byte("shared shard"), 0o644); err != nil {
+		t.Fatalf("write guild shard: %v", err)
+	}
+
+	service := &Service{
+		cfg: config.Config{
+			App: config.AppConfig{
+				WorkspaceRoot: workspace,
+				SessionDir:    sessionDir,
+				MemoryDir:     filepath.Join(sessionDir, "memory"),
+			},
+			Discord: config.DiscordConfig{
+				GuildSessionScope: "channel",
+			},
+		},
+	}
+
+	report := service.memoryReport(key)
+	if !contains(report, "Memory root: ./.lumen/guild-memory/guild-1/channel-1") {
+		t.Fatalf("expected guild memory root in report, got:\n%s", report)
 	}
 }
 
