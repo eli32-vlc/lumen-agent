@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"lumen-agent/internal/agent"
 	"lumen-agent/internal/config"
 	"lumen-agent/internal/llm"
+	"lumen-agent/internal/tools"
 )
 
 func TestIsEmergencyStopCommand(t *testing.T) {
@@ -116,21 +119,32 @@ func TestIsTimeoutError(t *testing.T) {
 
 func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 	key := sessionKey{GuildID: "guild", ChannelID: "channel", UserID: "user"}
-	service := &Service{
-		cfg: config.Config{
-			LLM: config.LLMConfig{
-				ContextWindowTokens: 32000,
-				MaxTokens:           4000,
-			},
-			App: config.AppConfig{
-				HistoryCompaction: config.AppHistoryCompactionConfig{
-					Enabled:                true,
-					TriggerTokens:          12000,
-					TargetTokens:           8000,
-					PreserveRecentMessages: 12,
-				},
+	workspace := t.TempDir()
+	cfg := config.Config{
+		App: config.AppConfig{
+			WorkspaceRoot: workspace,
+			SessionDir:    filepath.Join(workspace, ".lumen"),
+			MemoryDir:     filepath.Join(workspace, ".lumen", "memory"),
+			HistoryCompaction: config.AppHistoryCompactionConfig{
+				Enabled:                true,
+				TriggerTokens:          12000,
+				TargetTokens:           8000,
+				PreserveRecentMessages: 12,
 			},
 		},
+		LLM: config.LLMConfig{
+			ContextWindowTokens: 32000,
+			MaxTokens:           4000,
+		},
+	}
+	registry, err := tools.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	defer registry.Close()
+	service := &Service{
+		cfg:    cfg,
+		runner: agent.NewRunner(cfg, nil, registry),
 		sessions: map[string]*sessionState{
 			key.String(): {
 				ID:        "sess-1",
@@ -151,11 +165,14 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"Status",
-		"Background jobs: 2 active (1 queued, 1 running), 1 done, 1 failed, 1 canceled",
-		"Context used: 0% (",
-		"Open chats: 1",
-		"This chat: 1 saved messages",
+		"🌙 Lumen check-in",
+		"🛠️ Background jobs: 2 active (1 queued, 1 running), 1 done, 1 failed, 1 canceled",
+		"🧠 Context usage: ",
+		"│",
+		"💬 Open chats around me: 1",
+		"🧠 This chat is carrying 1 saved messages",
+		"📦 Base prompt + memory: ~",
+		"🗂️ History in window: ~",
 	} {
 		if !contains(report, snippet) {
 			t.Fatalf("expected report to contain %q, got:\n%s", snippet, report)
@@ -165,23 +182,36 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 
 func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
 	key := sessionKey{GuildID: "guild", ChannelID: "channel", UserID: "user"}
-	service := &Service{
-		cfg: config.Config{
-			LLM: config.LLMConfig{
-				ContextWindowTokens: 1000000,
-				MaxTokens:           64000,
-			},
+	workspace := t.TempDir()
+	cfg := config.Config{
+		App: config.AppConfig{
+			WorkspaceRoot: workspace,
+			SessionDir:    filepath.Join(workspace, ".lumen"),
+			MemoryDir:     filepath.Join(workspace, ".lumen", "memory"),
 		},
+		LLM: config.LLMConfig{
+			ContextWindowTokens: 1000000,
+			MaxTokens:           64000,
+		},
+	}
+	registry, err := tools.NewRegistry(cfg)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	defer registry.Close()
+	service := &Service{
+		cfg:      cfg,
+		runner:   agent.NewRunner(cfg, nil, registry),
 		sessions: map[string]*sessionState{},
 		tasks:    map[string]*backgroundTask{},
 	}
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"Status",
-		"Context used: 0% (0 of about 936000 input tokens)",
-		"Background jobs: none",
-		"No active chat in this channel yet.",
+		"🌙 Lumen check-in",
+		"🧠 Context usage: ",
+		"🛠️ Background jobs: none",
+		"💤 This channel is quiet right now. No active chat yet.",
 	} {
 		if !contains(report, snippet) {
 			t.Fatalf("expected report to contain %q, got:\n%s", snippet, report)

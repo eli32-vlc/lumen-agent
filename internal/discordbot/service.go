@@ -1157,60 +1157,113 @@ func (s *Service) lookupSession(key sessionKey) *sessionState {
 func (s *Service) statusReport(key sessionKey) string {
 	session := s.lookupSession(key)
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
-	inputBudget := s.cfg.LLMInputTokenBudget()
-
-	lines := []string{
-		"Status",
-		contextWindowLine(0, inputBudget),
-		backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
-	}
+	lines := []string{"🌙 Lumen check-in"}
 
 	if session == nil {
+		estimate := s.runner.EstimateContextUsage(nil, agent.ConversationContext{
+			IsDirectMessage: key.GuildID == "",
+			GuildID:         key.GuildID,
+			ChannelID:       key.ChannelID,
+			Now:             time.Now(),
+		}, "", nil)
 		lines = append(lines,
-			fmt.Sprintf("Open chats: %d", activeSessions),
-			"No active chat in this channel yet.",
+			contextWindowLine(estimate),
+			contextWindowBar(estimate),
+			backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+			fmt.Sprintf("💬 Open chats around me: %d", activeSessions),
+			"💤 This channel is quiet right now. No active chat yet.",
 		)
 		return strings.Join(lines, "\n")
 	}
 
 	history, _ := session.snapshotForRun()
-	usedTokens := agent.EstimateHistoryTokens(history)
+	estimate := s.runner.EstimateContextUsage(history, agent.ConversationContext{
+		IsDirectMessage: key.GuildID == "",
+		GuildID:         key.GuildID,
+		ChannelID:       key.ChannelID,
+		Now:             time.Now(),
+	}, "", nil)
 	lines = append(lines,
-		contextWindowLine(usedTokens, inputBudget),
-		fmt.Sprintf("Open chats: %d", activeSessions),
-		fmt.Sprintf("This chat: %d saved messages", len(history)),
-		fmt.Sprintf("Waiting messages: %d", len(session.Queue)),
-		fmt.Sprintf("Last activity: %s", session.updatedAt().In(time.Local).Format("2006-01-02 15:04 MST")),
+		contextWindowLine(estimate),
+		contextWindowBar(estimate),
+		backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+		fmt.Sprintf("💬 Open chats around me: %d", activeSessions),
+		fmt.Sprintf("🧠 This chat is carrying %d saved messages", len(history)),
+		fmt.Sprintf("📦 Base prompt + memory: ~%d tokens", estimate.SystemPromptTokens),
+		fmt.Sprintf("🗂️ History in window: ~%d tokens across %d messages", estimate.HistoryTokensAfter, estimate.HistoryMessagesAfter),
+		statusHistoryTrimLine(estimate),
+		fmt.Sprintf("⏳ Waiting messages: %d", len(session.Queue)),
+		fmt.Sprintf("🕒 Last activity: %s", session.updatedAt().In(time.Local).Format("2006-01-02 15:04 MST")),
 	)
 	return strings.Join(lines, "\n")
 }
 
-func contextWindowLine(usedTokens int, inputBudget int) string {
-	if inputBudget <= 0 {
-		return "Context: unavailable"
+func contextWindowLine(estimate agent.ContextUsageEstimate) string {
+	if estimate.InputBudgetTokens <= 0 {
+		return "🧠 Context: unavailable right now"
 	}
-	if usedTokens < 0 {
-		usedTokens = 0
-	}
-	percent := 0
-	if inputBudget > 0 {
-		percent = (usedTokens * 100) / inputBudget
-	}
-	if percent < 0 {
-		percent = 0
-	}
-	return fmt.Sprintf("Context used: %d%% (%d of about %d input tokens)", percent, usedTokens, inputBudget)
+	return fmt.Sprintf(
+		"🧠 Context usage: %d%% (%d of about %d input tokens)",
+		contextUsagePercent(estimate),
+		estimate.TotalInputTokens,
+		estimate.InputBudgetTokens,
+	)
 }
 
 func backgroundTaskLine(queued int, running int, completed int, failed int, canceled int) string {
 	active := queued + running
 	if active == 0 && completed == 0 && failed == 0 && canceled == 0 {
-		return "Background jobs: none"
+		return "🛠️ Background jobs: none"
 	}
 	if active == 0 {
-		return fmt.Sprintf("Background jobs: none running, %d done, %d failed, %d canceled", completed, failed, canceled)
+		return fmt.Sprintf("🛠️ Background jobs: none running, %d done, %d failed, %d canceled", completed, failed, canceled)
 	}
-	return fmt.Sprintf("Background jobs: %d active (%d queued, %d running), %d done, %d failed, %d canceled", active, queued, running, completed, failed, canceled)
+	return fmt.Sprintf("🛠️ Background jobs: %d active (%d queued, %d running), %d done, %d failed, %d canceled", active, queued, running, completed, failed, canceled)
+}
+
+func contextWindowBar(estimate agent.ContextUsageEstimate) string {
+	const width = 18
+	filled := 0
+	percent := contextUsagePercent(estimate)
+	if percent > 0 {
+		filled = (percent * width) / 100
+		if filled == 0 {
+			filled = 1
+		}
+	}
+	if filled > width {
+		filled = width
+	}
+	empty := width - filled
+	if empty < 0 {
+		empty = 0
+	}
+	return fmt.Sprintf("│%s%s│", strings.Repeat("#", filled), strings.Repeat("-", empty))
+}
+
+func contextUsagePercent(estimate agent.ContextUsageEstimate) int {
+	if estimate.InputBudgetTokens <= 0 {
+		return 0
+	}
+	percent := (estimate.TotalInputTokens * 100) / estimate.InputBudgetTokens
+	if percent < 0 {
+		return 0
+	}
+	if percent > 999 {
+		return 999
+	}
+	return percent
+}
+
+func statusHistoryTrimLine(estimate agent.ContextUsageEstimate) string {
+	if estimate.HistoryMessagesBefore <= estimate.HistoryMessagesAfter {
+		return "✨ Nothing has been trimmed out of the live window yet"
+	}
+	return fmt.Sprintf(
+		"✂️ Window trimming is active: %d total history messages, %d still fit live",
+		estimate.HistoryMessagesBefore,
+		estimate.HistoryMessagesAfter,
+	)
 }
 
 func (s *Service) compactSessionForKey(key sessionKey) (string, error) {

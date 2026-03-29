@@ -47,6 +47,18 @@ type Runner struct {
 	skills   *skills.Loader
 }
 
+type ContextUsageEstimate struct {
+	SystemPromptTokens    int
+	HistoryTokensBefore   int
+	HistoryTokensAfter    int
+	CurrentUserTokens     int
+	TotalInputTokens      int
+	InputBudgetTokens     int
+	ContextWindowTokens   int
+	HistoryMessagesBefore int
+	HistoryMessagesAfter  int
+}
+
 func NewRunner(cfg config.Config, client chatClient, registry *tools.Registry) *Runner {
 	return &Runner{
 		cfg:      cfg,
@@ -672,6 +684,37 @@ func approximateHistoryTokens(history []llm.Message) int {
 
 func EstimateHistoryTokens(history []llm.Message) int {
 	return approximateHistoryTokens(history)
+}
+
+func (r *Runner) EstimateContextUsage(history []llm.Message, conversation ConversationContext, currentUserPrompt string, currentUserParts []llm.ContentPart) ContextUsageEstimate {
+	systemPrompt := r.systemPrompt(conversation)
+	trimmedHistory := trimHistoryForContext(history, systemPrompt, r.cfg.LLMInputTokenBudget())
+	currentUser := llm.Message{
+		Role:    "user",
+		Content: strings.TrimSpace(currentUserPrompt),
+		Parts:   append([]llm.ContentPart(nil), currentUserParts...),
+	}
+
+	systemPromptTokens := approximateTextTokens(systemPrompt) + 12
+	historyTokensBefore := approximateHistoryTokens(history)
+	historyTokensAfter := approximateHistoryTokens(trimmedHistory)
+	currentUserTokens := approximateMessageTokens(currentUser)
+	totalInputTokens := systemPromptTokens + historyTokensAfter
+	if strings.TrimSpace(currentUser.Content) != "" || len(currentUser.Parts) > 0 {
+		totalInputTokens += currentUserTokens
+	}
+
+	return ContextUsageEstimate{
+		SystemPromptTokens:    systemPromptTokens,
+		HistoryTokensBefore:   historyTokensBefore,
+		HistoryTokensAfter:    historyTokensAfter,
+		CurrentUserTokens:     currentUserTokens,
+		TotalInputTokens:      totalInputTokens,
+		InputBudgetTokens:     r.cfg.LLMInputTokenBudget(),
+		ContextWindowTokens:   r.cfg.LLM.ContextWindowTokens,
+		HistoryMessagesBefore: len(history),
+		HistoryMessagesAfter:  len(trimmedHistory),
+	}
 }
 
 func historySummaryLine(message llm.Message) string {
