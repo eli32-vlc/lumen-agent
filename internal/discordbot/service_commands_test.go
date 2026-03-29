@@ -176,13 +176,17 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"🌙 Lumen check-in",
+		"## 🌙 Lumen Check-In",
+		"**Context**",
+		"```text",
 		"🛠️ Background jobs: 3 active (1 queued, 2 running), 1 done, 1 failed, 1 canceled",
 		"🤖 Worker context: running and separate from this chat",
-		"started with 6 messages (~554 tokens)",
+		"|- started with 6 messages (~554 tokens)",
 		"merge-back: not automatic, only the finish/fail reply comes back",
 		"🧠 Context usage: ",
-		"│",
+		"[",
+		"**Background**",
+		"**Chat**",
 		"💬 Open chats around me: 1",
 		"🧠 This chat is carrying 1 saved messages",
 		"📦 Base prompt + memory: ~",
@@ -222,7 +226,7 @@ func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"🌙 Lumen check-in",
+		"## 🌙 Lumen Check-In",
 		"🧠 Context usage: ",
 		"🛠️ Background jobs: none",
 		"💤 This channel is quiet right now. No active chat yet.",

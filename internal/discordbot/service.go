@@ -1178,7 +1178,10 @@ func (s *Service) statusReport(key sessionKey) string {
 	session := s.lookupSession(key)
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
 	worker := s.latestBackgroundTaskForChannel(key.ChannelID)
-	lines := []string{"🌙 Lumen check-in"}
+	lines := []string{
+		"## 🌙 Lumen Check-In",
+		"",
+	}
 
 	if session == nil {
 		estimate := s.runner.EstimateContextUsage(nil, agent.ConversationContext{
@@ -1188,12 +1191,21 @@ func (s *Service) statusReport(key sessionKey) string {
 			Now:             time.Now(),
 		}, "", nil)
 		lines = append(lines,
+			"**Context**",
+			"```text",
 			contextWindowLine(estimate),
 			contextWindowBar(estimate),
+			"```",
+			"",
+			"**Background**",
+			"```text",
 			backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
 			backgroundWorkerSummary(worker),
-			fmt.Sprintf("💬 Open chats around me: %d", activeSessions),
-			"💤 This channel is quiet right now. No active chat yet.",
+			"```",
+			"",
+			"**Chat**",
+			fmt.Sprintf("- 💬 Open chats around me: %d", activeSessions),
+			"- 💤 This channel is quiet right now. No active chat yet.",
 		)
 		return strings.Join(lines, "\n")
 	}
@@ -1206,17 +1218,26 @@ func (s *Service) statusReport(key sessionKey) string {
 		Now:             time.Now(),
 	}, "", nil)
 	lines = append(lines,
+		"**Context**",
+		"```text",
 		contextWindowLine(estimate),
 		contextWindowBar(estimate),
-		backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
-		backgroundWorkerSummary(worker),
-		fmt.Sprintf("💬 Open chats around me: %d", activeSessions),
-		fmt.Sprintf("🧠 This chat is carrying %d saved messages", len(history)),
 		fmt.Sprintf("📦 Base prompt + memory: ~%d tokens", estimate.SystemPromptTokens),
 		fmt.Sprintf("🗂️ History in window: ~%d tokens across %d messages", estimate.HistoryTokensAfter, estimate.HistoryMessagesAfter),
 		statusHistoryTrimLine(estimate),
-		fmt.Sprintf("⏳ Waiting messages: %d", len(session.Queue)),
-		fmt.Sprintf("🕒 Last activity: %s", session.updatedAt().In(time.Local).Format("2006-01-02 15:04 MST")),
+		"```",
+		"",
+		"**Background**",
+		"```text",
+		backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+		backgroundWorkerSummary(worker),
+		"```",
+		"",
+		"**Chat**",
+		fmt.Sprintf("- 💬 Open chats around me: %d", activeSessions),
+		fmt.Sprintf("- 🧠 This chat is carrying %d saved messages", len(history)),
+		fmt.Sprintf("- ⏳ Waiting messages: %d", len(session.Queue)),
+		fmt.Sprintf("- 🕒 Last activity: %s", session.updatedAt().In(time.Local).Format("2006-01-02 15:04 MST")),
 	)
 	return strings.Join(lines, "\n")
 }
@@ -1258,9 +1279,9 @@ func backgroundWorkerSummary(task *backgroundTask) string {
 
 	return strings.Join([]string{
 		fmt.Sprintf("🤖 Worker context: %s and separate from this chat", status),
-		fmt.Sprintf("   started with %d messages (~%d tokens)", task.SpawnMessages, task.SpawnTokens),
-		fmt.Sprintf("   now holding %d messages (~%d tokens)", currentMessages, currentTokens),
-		"   merge-back: not automatic, only the finish/fail reply comes back",
+		fmt.Sprintf("|- started with %d messages (~%d tokens)", task.SpawnMessages, task.SpawnTokens),
+		fmt.Sprintf("|- now holding %d messages (~%d tokens)", currentMessages, currentTokens),
+		"`- merge-back: not automatic, only the finish/fail reply comes back",
 	}, "\n")
 }
 
@@ -1281,7 +1302,7 @@ func contextWindowBar(estimate agent.ContextUsageEstimate) string {
 	if empty < 0 {
 		empty = 0
 	}
-	return fmt.Sprintf("│%s%s│", strings.Repeat("#", filled), strings.Repeat("-", empty))
+	return fmt.Sprintf("[%-18s]", strings.Repeat("#", filled)+strings.Repeat("-", empty))
 }
 
 func contextUsagePercent(estimate agent.ContextUsageEstimate) int {
