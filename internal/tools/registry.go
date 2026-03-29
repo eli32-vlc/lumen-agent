@@ -33,6 +33,7 @@ type Registry struct {
 	gifClient       *http.Client
 	backgroundTasks BackgroundTaskManager
 	sandboxes       SandboxManager
+	locks           *resourceLockManager
 }
 
 func NewRegistry(cfg config.Config) (*Registry, error) {
@@ -49,6 +50,7 @@ func NewRegistry(cfg config.Config) (*Registry, error) {
 		gifClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		locks: newResourceLockManager(),
 	}
 
 	registry.registerFilesystemTools()
@@ -117,6 +119,13 @@ func (r *Registry) Execute(ctx context.Context, call llm.ToolCall) (string, erro
 	}
 
 	return tool.Handler(ctx, json.RawMessage(payload))
+}
+
+func (r *Registry) ensureLockManager() *resourceLockManager {
+	if r.locks == nil {
+		r.locks = newResourceLockManager()
+	}
+	return r.locks
 }
 
 func (r *Registry) register(name string, description string, parameters map[string]any, handler Handler) {

@@ -12,6 +12,18 @@ import (
 	"strings"
 )
 
+func (r *Registry) lockPaths(ctx context.Context, paths ...string) (func(), error) {
+	keys := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		keys = append(keys, "file:"+filepath.Clean(path))
+	}
+	return r.ensureLockManager().Acquire(ctx, keys...)
+}
+
 func (r *Registry) registerFilesystemTools() {
 	r.register(
 		"read_file",
@@ -161,7 +173,7 @@ func (r *Registry) handleReadFile(_ context.Context, payload json.RawMessage) (s
 	})
 }
 
-func (r *Registry) handleWriteFile(_ context.Context, payload json.RawMessage) (string, error) {
+func (r *Registry) handleWriteFile(ctx context.Context, payload json.RawMessage) (string, error) {
 	type args struct {
 		Path      string `json:"path"`
 		Content   string `json:"content"`
@@ -180,6 +192,11 @@ func (r *Registry) handleWriteFile(_ context.Context, payload json.RawMessage) (
 	if err := r.ensurePathAccessible(path); err != nil {
 		return "", err
 	}
+	release, err := r.lockPaths(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	if !input.Overwrite {
 		if _, err := os.Stat(path); err == nil {
@@ -206,7 +223,7 @@ func (r *Registry) handleWriteFile(_ context.Context, payload json.RawMessage) (
 	})
 }
 
-func (r *Registry) handleReplaceInFile(_ context.Context, payload json.RawMessage) (string, error) {
+func (r *Registry) handleReplaceInFile(ctx context.Context, payload json.RawMessage) (string, error) {
 	type args struct {
 		Path       string `json:"path"`
 		OldText    string `json:"old_text"`
@@ -230,6 +247,11 @@ func (r *Registry) handleReplaceInFile(_ context.Context, payload json.RawMessag
 	if err := r.ensurePathAccessible(path); err != nil {
 		return "", err
 	}
+	release, err := r.lockPaths(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -520,7 +542,7 @@ func (r *Registry) handleGrepSearch(_ context.Context, payload json.RawMessage) 
 	})
 }
 
-func (r *Registry) handleMkdir(_ context.Context, payload json.RawMessage) (string, error) {
+func (r *Registry) handleMkdir(ctx context.Context, payload json.RawMessage) (string, error) {
 	type args struct {
 		Path string `json:"path"`
 	}
@@ -537,6 +559,11 @@ func (r *Registry) handleMkdir(_ context.Context, payload json.RawMessage) (stri
 	if err := r.ensurePathAccessible(path); err != nil {
 		return "", err
 	}
+	release, err := r.lockPaths(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", fmt.Errorf("create directory: %w", err)
@@ -553,7 +580,7 @@ func (r *Registry) handleMkdir(_ context.Context, payload json.RawMessage) (stri
 	})
 }
 
-func (r *Registry) handleMovePath(_ context.Context, payload json.RawMessage) (string, error) {
+func (r *Registry) handleMovePath(ctx context.Context, payload json.RawMessage) (string, error) {
 	type args struct {
 		Source      string `json:"source"`
 		Destination string `json:"destination"`
@@ -579,6 +606,11 @@ func (r *Registry) handleMovePath(_ context.Context, payload json.RawMessage) (s
 	if err := r.ensurePathMutationAllowed(destination); err != nil {
 		return "", err
 	}
+	release, err := r.lockPaths(ctx, source, destination)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	if source == r.root {
 		return "", fmt.Errorf("refusing to move the workspace root")
@@ -614,7 +646,7 @@ func (r *Registry) handleMovePath(_ context.Context, payload json.RawMessage) (s
 	})
 }
 
-func (r *Registry) handleDeletePath(_ context.Context, payload json.RawMessage) (string, error) {
+func (r *Registry) handleDeletePath(ctx context.Context, payload json.RawMessage) (string, error) {
 	type args struct {
 		Path      string `json:"path"`
 		Recursive bool   `json:"recursive"`
@@ -632,6 +664,11 @@ func (r *Registry) handleDeletePath(_ context.Context, payload json.RawMessage) 
 	if err := r.ensurePathMutationAllowed(path); err != nil {
 		return "", err
 	}
+	release, err := r.lockPaths(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	if path == r.root {
 		return "", fmt.Errorf("refusing to delete the workspace root")
 	}

@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,7 +23,7 @@ type mcpBoundTool struct {
 	toolName   string
 	session    *mcp.ClientSession
 	timeout    time.Duration
-	mu         *sync.Mutex
+	locks      *resourceLockManager
 }
 
 func (r *Registry) registerMCPTools(ctx context.Context) error {
@@ -67,7 +66,6 @@ func (r *Registry) registerMCPServerTools(ctx context.Context, server config.MCP
 		return fmt.Errorf("list tools from MCP server %q: %w", server.Name, err)
 	}
 
-	callMu := &sync.Mutex{}
 	for _, tool := range toolsResult.Tools {
 		if tool == nil {
 			continue
@@ -84,7 +82,7 @@ func (r *Registry) registerMCPServerTools(ctx context.Context, server config.MCP
 			toolName:   tool.Name,
 			session:    session,
 			timeout:    r.cfg.MCPServerToolTimeout(server),
-			mu:         callMu,
+			locks:      r.ensureLockManager(),
 		}
 
 		description := strings.TrimSpace(tool.Description)
@@ -168,8 +166,11 @@ func (t *mcpBoundTool) handle(ctx context.Context, payload json.RawMessage) (str
 		return "", fmt.Errorf("decode MCP tool arguments: %w", err)
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	release, err := t.locks.Acquire(ctx, "mcp:"+strings.TrimSpace(t.serverName))
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	toolCtx, cancel := context.WithTimeout(ctx, t.timeout)
 	defer cancel()
