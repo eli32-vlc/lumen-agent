@@ -1224,10 +1224,7 @@ func (s *Service) statusReport(key sessionKey) string {
 	session := s.lookupSession(key)
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
 	worker := s.latestBackgroundTaskForChannel(key.ChannelID)
-	lines := []string{
-		"## 🌙 Lumen Check-In",
-		"",
-	}
+	lines := []string{"## 🌙 Lumen Check-In"}
 
 	if session == nil {
 		estimate := s.runner.EstimateContextUsage(nil, agent.ConversationContext{
@@ -1237,27 +1234,14 @@ func (s *Service) statusReport(key sessionKey) string {
 			Now:             time.Now(),
 		}, "", nil)
 		lines = append(lines,
-			"**Context**",
-			"```text",
-			contextWindowLine(estimate),
+			"",
+			"**Context**  "+contextWindowLine(estimate),
 			contextWindowBar(estimate),
-			"```",
 			"",
-			"**Runtime**",
-			"```text",
-			s.runtimeSpeedLine(),
-			s.runtimeToolHealthLine(),
-			"```",
-			"",
-			"**Background**",
-			"```text",
-			backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+			"**Runtime**  "+strings.Join([]string{s.runtimeSpeedLine(), s.runtimeToolHealthLine()}, "  •  "),
+			"**Background**  "+backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
 			backgroundWorkerSummary(worker),
-			"```",
-			"",
-			"**Chat**",
-			fmt.Sprintf("- 💬 Open chats around me: %d", activeSessions),
-			"- 💤 This channel is quiet right now. No active chat yet.",
+			"**Chat**  "+fmt.Sprintf("💬 %d open chat(s)  •  💤 no active chat in this channel", activeSessions),
 		)
 		return strings.Join(lines, "\n")
 	}
@@ -1270,32 +1254,25 @@ func (s *Service) statusReport(key sessionKey) string {
 		Now:             time.Now(),
 	}, "", nil)
 	lines = append(lines,
-		"**Context**",
-		"```text",
-		contextWindowLine(estimate),
+		"",
+		"**Context**  "+contextWindowLine(estimate),
 		contextWindowBar(estimate),
-		fmt.Sprintf("📦 Base prompt + memory: ~%d tokens", estimate.SystemPromptTokens),
-		fmt.Sprintf("🗂️ History in window: ~%d tokens across %d messages", estimate.HistoryTokensAfter, estimate.HistoryMessagesAfter),
-		statusHistoryTrimLine(estimate),
-		"```",
+		fmt.Sprintf("↳ 📦 base+memory ~%d  •  🗂️ live history ~%d across %d msgs  •  %s",
+			estimate.SystemPromptTokens,
+			estimate.HistoryTokensAfter,
+			estimate.HistoryMessagesAfter,
+			statusHistoryTrimLine(estimate),
+		),
 		"",
-		"**Runtime**",
-		"```text",
-		s.runtimeSpeedLine(),
-		s.runtimeToolHealthLine(),
-		"```",
-		"",
-		"**Background**",
-		"```text",
-		backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+		"**Runtime**  "+strings.Join([]string{s.runtimeSpeedLine(), s.runtimeToolHealthLine()}, "  •  "),
+		"**Background**  "+backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
 		backgroundWorkerSummary(worker),
-		"```",
-		"",
-		"**Chat**",
-		fmt.Sprintf("- 💬 Open chats around me: %d", activeSessions),
-		fmt.Sprintf("- 🧠 This chat is carrying %d saved messages", len(history)),
-		fmt.Sprintf("- ⏳ Waiting messages: %d", len(session.Queue)),
-		fmt.Sprintf("- 🕒 Last activity: %s", session.updatedAt().In(time.Local).Format("2006-01-02 15:04 MST")),
+		"**Chat**  "+fmt.Sprintf("💬 %d open  •  🧠 %d saved msgs  •  ⏳ %d waiting  •  🕒 %s",
+			activeSessions,
+			len(history),
+			len(session.Queue),
+			session.updatedAt().In(time.Local).Format("2006-01-02 15:04 MST"),
+		),
 	)
 	return strings.Join(lines, "\n")
 }
@@ -1325,7 +1302,7 @@ func backgroundTaskLine(queued int, running int, completed int, failed int, canc
 
 func backgroundWorkerSummary(task *backgroundTask) string {
 	if task == nil {
-		return "🤖 Worker context: none right now"
+		return "↳ 🤖 worker: none right now"
 	}
 
 	currentMessages := len(task.History)
@@ -1336,15 +1313,15 @@ func backgroundWorkerSummary(task *backgroundTask) string {
 	}
 
 	return strings.Join([]string{
-		fmt.Sprintf("🤖 Worker context: %s and separate from this chat", status),
-		fmt.Sprintf("|- started with %d messages (~%d tokens)", task.SpawnMessages, task.SpawnTokens),
-		fmt.Sprintf("|- now holding %d messages (~%d tokens)", currentMessages, currentTokens),
-		"`- merge-back: not automatic, only the finish/fail reply comes back",
+		fmt.Sprintf("↳ 🤖 worker: %s, separate from this chat", status),
+		fmt.Sprintf("   • started with %d msgs (~%d tok)", task.SpawnMessages, task.SpawnTokens),
+		fmt.Sprintf("   • now at %d msgs (~%d tok)", currentMessages, currentTokens),
+		"   • merge-back: finish/fail handoff only",
 	}, "\n")
 }
 
 func contextWindowBar(estimate agent.ContextUsageEstimate) string {
-	const width = 18
+	const width = 28
 	filled := 0
 	percent := contextUsagePercent(estimate)
 	if percent > 0 {
@@ -1360,7 +1337,7 @@ func contextWindowBar(estimate agent.ContextUsageEstimate) string {
 	if empty < 0 {
 		empty = 0
 	}
-	return fmt.Sprintf("[%-18s]", strings.Repeat("#", filled)+strings.Repeat("-", empty))
+	return "▕" + strings.Repeat("▰", filled) + strings.Repeat("▱", empty) + "▏"
 }
 
 func contextUsagePercent(estimate agent.ContextUsageEstimate) int {
@@ -1379,10 +1356,10 @@ func contextUsagePercent(estimate agent.ContextUsageEstimate) int {
 
 func statusHistoryTrimLine(estimate agent.ContextUsageEstimate) string {
 	if estimate.HistoryMessagesBefore <= estimate.HistoryMessagesAfter {
-		return "✨ Nothing has been trimmed out of the live window yet"
+		return "✨ not trimmed yet"
 	}
 	return fmt.Sprintf(
-		"✂️ Window trimming is active: %d total history messages, %d still fit live",
+		"✂️ trimmed: %d total history msgs, %d still live",
 		estimate.HistoryMessagesBefore,
 		estimate.HistoryMessagesAfter,
 	)
@@ -1416,11 +1393,11 @@ func (s *Service) runtimeSpeedLine() string {
 	s.mu.RUnlock()
 
 	if stats.ModelResponses == 0 || stats.ModelResponseMS <= 0 || stats.ModelOutputTokens <= 0 {
-		return "⚡ Model speed: warming up, not enough data yet"
+		return "⚡ model: warming up"
 	}
 
 	tps := float64(stats.ModelOutputTokens) / (float64(stats.ModelResponseMS) / 1000.0)
-	return fmt.Sprintf("⚡ Model speed: ~%.1f tok/s across %d replies", tps, stats.ModelResponses)
+	return fmt.Sprintf("⚡ model ~%.1f tok/s across %d replies", tps, stats.ModelResponses)
 }
 
 func (s *Service) runtimeToolHealthLine() string {
@@ -1429,15 +1406,15 @@ func (s *Service) runtimeToolHealthLine() string {
 	s.mu.RUnlock()
 
 	if stats.ToolCalls == 0 {
-		return "🧰 Tool health: no tool calls yet"
+		return "🧰 tools: no calls yet"
 	}
 
 	okRate := float64(stats.ToolCalls-stats.ToolFailures) * 100.0 / float64(stats.ToolCalls)
 	avgLatency := float64(stats.ToolDurationMS) / float64(stats.ToolCalls)
 	if stats.ParallelToolBatches > 0 {
-		return fmt.Sprintf("🧰 Tool health: %d failures out of %d calls, %.0f%% ok, avg %.0f ms, parallel batches %d", stats.ToolFailures, stats.ToolCalls, okRate, avgLatency, stats.ParallelToolBatches)
+		return fmt.Sprintf("🧰 tools %d fail / %d calls, %.0f%% ok, avg %.0f ms, %d parallel batches", stats.ToolFailures, stats.ToolCalls, okRate, avgLatency, stats.ParallelToolBatches)
 	}
-	return fmt.Sprintf("🧰 Tool health: %d failures out of %d calls, %.0f%% ok, avg %.0f ms", stats.ToolFailures, stats.ToolCalls, okRate, avgLatency)
+	return fmt.Sprintf("🧰 tools %d fail / %d calls, %.0f%% ok, avg %.0f ms", stats.ToolFailures, stats.ToolCalls, okRate, avgLatency)
 }
 
 func (s *Service) memoryReport(key sessionKey) string {
@@ -1452,24 +1429,11 @@ func (s *Service) memoryReport(key sessionKey) string {
 	lines := []string{
 		"## 🧠 Memory",
 		"",
-		"**Overview**",
-		"```text",
-		"Status: " + info.Status,
-		"Memory root: " + info.DisplayRoot,
-		"Shard loading: " + info.ShardLoading,
-		"Total shard files: " + strconv.Itoa(info.TotalShardFiles),
-		"Loaded this turn: " + strconv.Itoa(info.LoadedThisTurn),
-		"Earliest memory: " + info.EarliestMemory,
-		"Latest memory: " + info.LatestMemory,
-		"```",
-		"",
-		"**Current picture**",
-		"```text",
-		fmt.Sprintf("|- total memory size: %s", humanizeBytes(info.TotalMemoryBytes)),
-		fmt.Sprintf("|- estimated prompt cost when loaded: ~%s tokens", humanizeApproxNumber(info.EstimatedPromptTokens)),
-		fmt.Sprintf("|- last shard written: %s", info.LastShardWritten),
-		fmt.Sprintf("`- mode: %s", info.Mode),
-		"```",
+		"**Overview**  " + fmt.Sprintf("Status: %s  •  Root: `%s`", info.Status, info.DisplayRoot),
+		fmt.Sprintf("↳ Shards: %d total  •  %d loaded this turn  •  %s", info.TotalShardFiles, info.LoadedThisTurn, info.ShardLoading),
+		fmt.Sprintf("↳ Range: %s → %s", info.EarliestMemory, info.LatestMemory),
+		"**Current Picture**  " + fmt.Sprintf("Size: %s  •  Prompt cost: ~%s tok", humanizeBytes(info.TotalMemoryBytes), humanizeApproxNumber(info.EstimatedPromptTokens)),
+		fmt.Sprintf("↳ Last write: %s  •  Mode: %s", info.LastShardWritten, info.Mode),
 	}
 
 	return strings.Join(lines, "\n")

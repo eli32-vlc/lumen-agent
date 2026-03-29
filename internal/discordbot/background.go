@@ -548,6 +548,8 @@ func backgroundTaskUpdatePrompt(task *backgroundTask, outcome string, reply stri
 	builder.WriteString("The worker does not speak directly to the user; you do. ")
 	builder.WriteString("Update your understanding using the handoff below and send a normal human reply to the user. ")
 	builder.WriteString("Avoid boilerplate runtime phrasing like raw session IDs unless they are genuinely useful.\n\n")
+	builder.WriteString("If the requested artifact was already sent with a Discord tool during the worker run, do not send a second duplicate delivery message. ")
+	builder.WriteString("If you mention progress or completion, keep it tied to verified evidence from the handoff.\n\n")
 	builder.WriteString("Background worker status: ")
 	builder.WriteString(strings.TrimSpace(outcome))
 	builder.WriteString("\n")
