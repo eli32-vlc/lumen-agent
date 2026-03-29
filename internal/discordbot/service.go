@@ -283,7 +283,7 @@ func (s *Service) handleNewCommand(interaction *discordgo.InteractionCreate) {
 	}
 
 	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
-		s.respondToInteraction(interaction, reason, interaction.GuildID != "")
+		s.respondToInteraction(interaction, reason, false)
 		return
 	}
 
@@ -298,7 +298,7 @@ func (s *Service) handleNewCommand(interaction *discordgo.InteractionCreate) {
 			"user_id":    userID,
 			"error":      err.Error(),
 		})
-		s.respondToInteraction(interaction, formatRunErrorForDiscord(err), interaction.GuildID != "")
+		s.respondToInteraction(interaction, formatRunErrorForDiscord(err), false)
 		return
 	}
 
@@ -318,7 +318,7 @@ func (s *Service) handleNewCommand(interaction *discordgo.InteractionCreate) {
 		message += " Send a message when you want to continue."
 	}
 
-	s.respondToInteraction(interaction, message, interaction.GuildID != "")
+	s.respondToInteraction(interaction, message, false)
 }
 
 func (s *Service) handleStopCommand(interaction *discordgo.InteractionCreate) {
@@ -332,7 +332,7 @@ func (s *Service) handleStopCommand(interaction *discordgo.InteractionCreate) {
 	}
 
 	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
-		s.respondToInteraction(interaction, reason, interaction.GuildID != "")
+		s.respondToInteraction(interaction, reason, false)
 		return
 	}
 
@@ -343,7 +343,7 @@ func (s *Service) handleStopCommand(interaction *discordgo.InteractionCreate) {
 		message = emergencyStopDoneReply
 	}
 
-	s.respondToInteraction(interaction, message, interaction.GuildID != "")
+	s.respondToInteraction(interaction, message, false)
 }
 
 func (s *Service) handleStatusCommand(interaction *discordgo.InteractionCreate) {
@@ -356,12 +356,12 @@ func (s *Service) handleStatusCommand(interaction *discordgo.InteractionCreate) 
 		return
 	}
 	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
-		s.respondToInteraction(interaction, reason, interaction.GuildID != "")
+		s.respondToInteraction(interaction, reason, false)
 		return
 	}
 
 	key := s.sessionKey(interaction.GuildID, interaction.ChannelID, userID)
-	s.respondToInteraction(interaction, s.statusReport(key), interaction.GuildID != "")
+	s.respondToInteraction(interaction, s.statusReport(key), false)
 }
 
 func (s *Service) handleCompactCommand(interaction *discordgo.InteractionCreate) {
@@ -374,17 +374,17 @@ func (s *Service) handleCompactCommand(interaction *discordgo.InteractionCreate)
 		return
 	}
 	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
-		s.respondToInteraction(interaction, reason, interaction.GuildID != "")
+		s.respondToInteraction(interaction, reason, false)
 		return
 	}
 
 	key := s.sessionKey(interaction.GuildID, interaction.ChannelID, userID)
 	message, err := s.compactSessionForKey(key)
 	if err != nil {
-		s.respondToInteraction(interaction, formatRunErrorForDiscord(err), interaction.GuildID != "")
+		s.respondToInteraction(interaction, formatRunErrorForDiscord(err), false)
 		return
 	}
-	s.respondToInteraction(interaction, message, interaction.GuildID != "")
+	s.respondToInteraction(interaction, message, false)
 }
 
 func (s *Service) handleMessageCreate(_ *discordgo.Session, message *discordgo.MessageCreate) {
@@ -1157,35 +1157,60 @@ func (s *Service) lookupSession(key sessionKey) *sessionState {
 func (s *Service) statusReport(key sessionKey) string {
 	session := s.lookupSession(key)
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
+	inputBudget := s.cfg.LLMInputTokenBudget()
 
 	lines := []string{
-		"Lumen status",
-		"",
-		fmt.Sprintf("Active sessions: %d", activeSessions),
-		fmt.Sprintf("Background tasks: %d queued, %d running, %d completed, %d failed, %d canceled", queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
-		fmt.Sprintf("Context window: %d tokens", s.cfg.LLM.ContextWindowTokens),
-		fmt.Sprintf("Input budget: %d tokens", s.cfg.LLMInputTokenBudget()),
-		fmt.Sprintf("History compaction: enabled=%s, trigger=%d, target=%d, preserve_recent=%d",
-			yesNo(s.cfg.App.HistoryCompaction.Enabled),
-			s.cfg.HistoryCompactionTriggerTokens(),
-			s.cfg.HistoryCompactionTargetTokens(),
-			s.cfg.HistoryCompactionPreserveRecentMessages(),
-		),
+		"Status",
+		contextWindowLine(0, inputBudget),
+		backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
 	}
 
 	if session == nil {
-		lines = append(lines, "Current session: none")
+		lines = append(lines,
+			fmt.Sprintf("Open chats: %d", activeSessions),
+			"No active chat in this channel yet.",
+		)
 		return strings.Join(lines, "\n")
 	}
 
 	history, _ := session.snapshotForRun()
+	usedTokens := agent.EstimateHistoryTokens(history)
 	lines = append(lines,
-		fmt.Sprintf("Current session: %s", session.ID),
-		fmt.Sprintf("Current queue depth: %d", len(session.Queue)),
-		fmt.Sprintf("Current history: %d messages, ~%d tokens", len(history), agent.EstimateHistoryTokens(history)),
-		fmt.Sprintf("Last updated: %s", session.updatedAt().UTC().Format(time.RFC3339)),
+		contextWindowLine(usedTokens, inputBudget),
+		fmt.Sprintf("Open chats: %d", activeSessions),
+		fmt.Sprintf("This chat: %d saved messages", len(history)),
+		fmt.Sprintf("Waiting messages: %d", len(session.Queue)),
+		fmt.Sprintf("Last activity: %s", session.updatedAt().In(time.Local).Format("2006-01-02 15:04 MST")),
 	)
 	return strings.Join(lines, "\n")
+}
+
+func contextWindowLine(usedTokens int, inputBudget int) string {
+	if inputBudget <= 0 {
+		return "Context: unavailable"
+	}
+	if usedTokens < 0 {
+		usedTokens = 0
+	}
+	percent := 0
+	if inputBudget > 0 {
+		percent = (usedTokens * 100) / inputBudget
+	}
+	if percent < 0 {
+		percent = 0
+	}
+	return fmt.Sprintf("Context used: %d%% (%d of about %d input tokens)", percent, usedTokens, inputBudget)
+}
+
+func backgroundTaskLine(queued int, running int, completed int, failed int, canceled int) string {
+	active := queued + running
+	if active == 0 && completed == 0 && failed == 0 && canceled == 0 {
+		return "Background jobs: none"
+	}
+	if active == 0 {
+		return fmt.Sprintf("Background jobs: none running, %d done, %d failed, %d canceled", completed, failed, canceled)
+	}
+	return fmt.Sprintf("Background jobs: %d active (%d queued, %d running), %d done, %d failed, %d canceled", active, queued, running, completed, failed, canceled)
 }
 
 func (s *Service) compactSessionForKey(key sessionKey) (string, error) {

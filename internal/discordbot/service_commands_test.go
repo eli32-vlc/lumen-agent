@@ -151,12 +151,37 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"Lumen status",
-		"Background tasks: 1 queued, 1 running, 1 completed, 1 failed, 1 canceled",
-		"Context window: 32000 tokens",
-		"Input budget: 28000 tokens",
-		"Current session: sess-1",
-		"Current history: 1 messages, ~",
+		"Status",
+		"Background jobs: 2 active (1 queued, 1 running), 1 done, 1 failed, 1 canceled",
+		"Context used: 0% (",
+		"Open chats: 1",
+		"This chat: 1 saved messages",
+	} {
+		if !contains(report, snippet) {
+			t.Fatalf("expected report to contain %q, got:\n%s", snippet, report)
+		}
+	}
+}
+
+func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
+	key := sessionKey{GuildID: "guild", ChannelID: "channel", UserID: "user"}
+	service := &Service{
+		cfg: config.Config{
+			LLM: config.LLMConfig{
+				ContextWindowTokens: 1000000,
+				MaxTokens:           64000,
+			},
+		},
+		sessions: map[string]*sessionState{},
+		tasks:    map[string]*backgroundTask{},
+	}
+
+	report := service.statusReport(key)
+	for _, snippet := range []string{
+		"Status",
+		"Context used: 0% (0 of about 936000 input tokens)",
+		"Background jobs: none",
+		"No active chat in this channel yet.",
 	} {
 		if !contains(report, snippet) {
 			t.Fatalf("expected report to contain %q, got:\n%s", snippet, report)
