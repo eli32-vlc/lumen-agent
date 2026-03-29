@@ -179,8 +179,9 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 	for _, snippet := range []string{
 		"## 🌙 Lumen Check-In",
 		"**Context**",
+		"```text",
 		"🛠️ Background jobs: 3 active (1 queued, 2 running), 1 done, 1 failed, 1 canceled",
-		"↳ 🤖 worker: running, separate from this chat",
+		"🤖 worker: running, separate from this chat",
 		"started with 6 msgs (~554 tok)",
 		"merge-back: finish/fail handoff only",
 		"🧠 Context usage: ",
@@ -189,7 +190,7 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 		"**Chat**",
 		"💬 1 open",
 		"🧠 1 saved msgs",
-		"↳ 📦 base+memory ~",
+		"📦 base+memory ~",
 		"live history ~",
 	} {
 		if !contains(report, snippet) {
@@ -285,15 +286,16 @@ func TestMemoryReportShowsShardSummary(t *testing.T) {
 	report := service.memoryReport(key)
 	for _, snippet := range []string{
 		"## 🧠 Memory",
-		"Status: enabled",
-		"Root: `./.lumen/memory`",
-		"Shards: 3 total  •  2 loaded this turn  •  current + previous half-day",
-		"Range: 2026-03-29 08:14 AEST → 2026-03-29 13:11 AEST",
-		"**Current Picture**",
-		"Size:",
-		"Prompt cost: ~",
-		"Last write: 2026-03-29 13:11 AEST",
-		"Mode: append-only shard memory",
+		"**Memory**",
+		"```text",
+		"Status      enabled",
+		"Root        ./.lumen/memory",
+		"Shards      3 total, 2 loaded now, current + previous half-day",
+		"Range       2026-03-29 08:14 AEST -> 2026-03-29 13:11 AEST",
+		"Size        ",
+		"Prompt cost ~",
+		"Last write  2026-03-29 13:11 AEST",
+		"Mode        append-only shard memory",
 	} {
 		if !contains(report, snippet) {
 			t.Fatalf("expected memory report to contain %q, got:\n%s", snippet, report)
@@ -328,7 +330,7 @@ func TestMemoryReportUsesSharedGuildMemoryRoot(t *testing.T) {
 	}
 
 	report := service.memoryReport(key)
-	if !contains(report, "Root: `./.lumen/guild-memory/guild-1/channel-1`") {
+	if !contains(report, "Root        ./.lumen/guild-memory/guild-1/channel-1") {
 		t.Fatalf("expected guild memory root in report, got:\n%s", report)
 	}
 }
