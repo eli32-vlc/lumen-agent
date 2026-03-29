@@ -1,36 +1,96 @@
 # Background Tasks
 
-Background tasks are Lumen’s sub-agent system.
+Background tasks are Lumen’s worker system.
 
-They exist for work that is too long, too noisy, or too asynchronous for the main foreground reply loop.
+They exist for work that is too long, too noisy, or too asynchronous for the foreground chat loop.
 
-## What they solve
+## The mental model
 
-Without background tasks, agents tend to do one of two bad things:
+Think of Lumen as having two lanes:
 
-- block the current conversation while doing long work
-- pretend they are still working without a reliable way to inspect what they are doing
+- the dom agent lane
+- the worker lane
 
-Lumen’s background-task model is built to avoid both.
+The dom agent talks to the user.
+The worker does the long-running job.
 
-## Core behavior
+That distinction matters a lot.
 
-When the Dom Agent starts a task with `start_background_task`, the runtime can carry over the current runtime history/context and run the task independently.
+## What happens when a worker starts
 
-The task can also be given:
+When the dom agent calls `start_background_task`, Lumen:
 
-- `min_runtime`: a minimum wall-clock time budget
-- `model_override`
-- `light_context`
-- `sandbox`
+1. looks up the current channel session
+2. copies the current session history
+3. copies the current skill snapshot
+4. creates a background-task record
+5. starts the worker loop in its own goroutine
 
-If `min_runtime` is set, the task should keep working until it reaches that floor or is genuinely blocked. It is meant to discourage low-effort early exits.
+So the worker begins with a snapshot of the chat as it existed at spawn time.
 
-## Tools
+After that:
+
+- the worker keeps its own history
+- the main chat keeps its own history
+- they are no longer the same live context
+
+That means the worker does inherit context, but only once at the start.
+
+## Does worker context merge back?
+
+Not fully.
+
+Lumen now uses a handoff model instead of having the worker talk directly to the user.
+
+When a worker finishes or fails:
+
+- the worker does not send raw runtime boilerplate to the user
+- Lumen creates an internal handoff event for the dom agent
+- the dom agent gets that worker result automatically
+- the dom agent then sends the user-facing reply
+
+So merge-back looks like this:
+
+- worker result and handoff: yes
+- full worker transcript: no, not automatically
+- raw worker status messages to the user: no
+
+This keeps workers as workers and keeps user-facing replies owned by the dom agent.
+
+## Worker handoff model
+
+The internal handoff includes:
+
+- worker status
+- task ID
+- original worker prompt
+- worker spawn snapshot size
+- current worker context size
+- final worker reply or error
+
+This gives the dom agent enough context to continue naturally without requiring the user to inspect worker logs manually.
+
+## What `/status` shows
+
+`/status` now shows:
+
+- main chat context usage
+- background job counts
+- latest worker context summary for the channel
+- whether that worker context is separate from the foreground chat
+- whether merge-back is automatic
+
+This is meant to answer the human question:
+
+"what is the worker doing relative to this chat?"
+
+instead of dumping raw runtime internals.
+
+## Worker controls
 
 ### `start_background_task`
 
-Starts a background sub-agent.
+Starts a worker.
 
 Key inputs:
 
@@ -42,43 +102,55 @@ Key inputs:
 
 ### `list_background_tasks`
 
-Lists tasks, optionally filtered by status.
+Lists recent worker tasks visible from the current channel context.
 
 ### `get_background_task`
 
-Returns task status, timestamps, result, error, and sandbox info. It can also include recent events when `include_events` is true.
+Returns high-level task state.
+
+Useful for:
+
+- status
+- timestamps
+- result
+- error
+- sandbox info
 
 ### `get_background_task_logs`
 
-Returns detailed event logs, including tool-call output and command output summaries.
+Returns event logs and tool output summaries.
 
-This is the tool the Dom Agent should use when a user asks what a sub-agent is doing.
+This is what the dom agent should use when the user asks:
+
+- “what is the worker doing?”
+- “what command is it on?”
+- “why did it fail?”
 
 ### `cancel_background_task`
 
-Cancels a running task.
+Cancels a running worker.
 
-## Event model
+## Runtime events
 
-Each task records structured events such as:
+Each worker records structured events such as:
 
 - status updates
 - assistant messages
 - tool started
 - tool finished
 
-Events can include:
+Events include:
 
 - tool name
 - short detail
 - full detail
 - timestamp
 
-The in-memory event log uses a bounded ring buffer controlled by `background_tasks.max_event_log_entries`.
+The event log is bounded by `background_tasks.max_event_log_entries`.
 
-## Task status model
+## Status lifecycle
 
-A task can be:
+A worker can be:
 
 - `queued`
 - `running`
@@ -86,7 +158,7 @@ A task can be:
 - `failed`
 - `canceled`
 
-The runtime also records:
+Each task also records:
 
 - `created_at`
 - `updated_at`
@@ -94,24 +166,36 @@ The runtime also records:
 - `completed_at`
 - `min_runtime_seconds`
 
-## Why this matters
+## Minimum runtime
 
-The main improvement here is operational visibility.
+`min_runtime` is a floor, not a target quality guarantee by itself.
 
-If a user asks:
+The idea is:
 
-- “what is the sub-agent doing?”
-- “what command is it stuck on?”
-- “what was the last tool output?”
+- don’t let the worker stop after one shallow pass
+- give it time to explore, verify, or write properly
+- only let it stop early if it is genuinely blocked
 
-the Dom Agent can answer using task state and logs instead of guessing.
+This is especially useful for:
 
-## Context inheritance
+- codebase analysis
+- longer web research
+- artifact generation
+- multi-step debugging
 
-Background tasks can inherit the current runtime history from the Dom Agent. This helps reduce the “sub-agent forgot everything” problem and gives the worker a better starting context.
+## Why workers help
 
-## Sandboxed tasks
+Without workers, agents tend to:
 
-If a task requests sandboxing, or sandboxing is globally forced, shell execution inside that background task is routed through a sandbox container.
+- block the current chat
+- give fake “still working” messages
+- lose detail about what they were doing
+- clutter the main chat with low-value intermediate updates
+
+Lumen’s worker model is meant to avoid that.
+
+## Sandboxed workers
+
+If a task requests sandboxing, or sandboxing is globally forced, shell execution inside that worker is routed through a sandbox container.
 
 See [Sandboxing](sandboxing.md).

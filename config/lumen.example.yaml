@@ -43,12 +43,14 @@ tools:
     - move_path
     - delete_path
     - exec_command
+    - compact_context
     - send_discord_file
     - start_background_task
     - list_background_tasks
     - get_background_task
     - get_background_task_logs
     - cancel_background_task
+    - schedule_heartbeat_wakeup
     - list_sandbox_containers
     - inspect_sandbox_container
     - create_sandbox_container

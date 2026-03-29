@@ -160,13 +160,27 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 			"failed":   {Status: backgroundTaskFailed},
 			"done":     {Status: backgroundTaskCompleted},
 			"canceled": {Status: backgroundTaskCanceled},
+			"worker": {
+				Status:        backgroundTaskRunning,
+				ChannelID:     key.ChannelID,
+				CreatedAt:     time.Date(2026, 3, 29, 10, 1, 0, 0, time.UTC),
+				SpawnMessages: 6,
+				SpawnTokens:   554,
+				History: []llm.Message{
+					{Role: "user", Content: "worker snapshot"},
+					{Role: "assistant", Content: "worker doing more"},
+				},
+			},
 		},
 	}
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
 		"🌙 Lumen check-in",
-		"🛠️ Background jobs: 2 active (1 queued, 1 running), 1 done, 1 failed, 1 canceled",
+		"🛠️ Background jobs: 3 active (1 queued, 2 running), 1 done, 1 failed, 1 canceled",
+		"🤖 Worker context: running and separate from this chat",
+		"started with 6 messages (~554 tokens)",
+		"merge-back: not automatic, only the finish/fail reply comes back",
 		"🧠 Context usage: ",
 		"│",
 		"💬 Open chats around me: 1",

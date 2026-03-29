@@ -45,6 +45,8 @@ type backgroundTask struct {
 	Events           []tools.BackgroundTaskEvent
 	Sandbox          *tools.BackgroundTaskSandboxInfo
 	SandboxRequested bool
+	SpawnMessages    int
+	SpawnTokens      int
 }
 
 func (s *Service) StartBackgroundTask(ctx context.Context, options tools.BackgroundTaskStartOptions) (tools.BackgroundTaskInfo, error) {
@@ -104,6 +106,8 @@ func (s *Service) startBackgroundTask(parent context.Context, guildID string, ch
 		LightContext:     options.LightContext,
 		MinRuntime:       minRuntime,
 		SandboxRequested: options.Sandbox,
+		SpawnMessages:    len(history),
+		SpawnTokens:      agent.EstimateHistoryTokens(history),
 	}
 
 	s.mu.Lock()
@@ -139,7 +143,7 @@ func (s *Service) runBackgroundTask(ctx context.Context, task *backgroundTask) {
 				task.Error = err.Error()
 				task.Cancel = nil
 			})
-			_ = s.sendReply(inboundPrompt{ChannelID: task.ChannelID, GuildID: task.GuildID}, fmt.Sprintf("Background task `%s` failed.\n\n%s", task.ID, formatRunErrorForDiscord(err)))
+			_ = s.enqueueBackgroundTaskUpdate(task, "failed", "", err)
 			return
 		}
 
@@ -156,7 +160,7 @@ func (s *Service) runBackgroundTask(ctx context.Context, task *backgroundTask) {
 				task.Error = err.Error()
 				task.Cancel = nil
 			})
-			_ = s.sendReply(inboundPrompt{ChannelID: task.ChannelID, GuildID: task.GuildID}, fmt.Sprintf("Background task `%s` failed.\n\n%s", task.ID, formatRunErrorForDiscord(err)))
+			_ = s.enqueueBackgroundTaskUpdate(task, "failed", "", err)
 			return
 		}
 		runCtx = tools.WithSandboxExecutionContext(runCtx, tools.SandboxExecutionContext{Name: info.Name})
@@ -231,7 +235,7 @@ func (s *Service) runBackgroundTask(ctx context.Context, task *backgroundTask) {
 			task.Error = strings.TrimSpace(err.Error())
 			task.Cancel = nil
 		})
-		_ = s.sendReply(inboundPrompt{ChannelID: task.ChannelID, GuildID: task.GuildID}, fmt.Sprintf("Background task `%s` failed.\n\n%s", task.ID, formatRunErrorForDiscord(err)))
+		_ = s.enqueueBackgroundTaskUpdate(task, "failed", "", err)
 		return
 	}
 
@@ -253,7 +257,7 @@ func (s *Service) runBackgroundTask(ctx context.Context, task *backgroundTask) {
 		task.Cancel = nil
 	})
 
-	_ = s.sendReply(inboundPrompt{ChannelID: task.ChannelID, GuildID: task.GuildID}, fmt.Sprintf("Background task `%s` finished.\n\n%s", task.ID, reply))
+	_ = s.enqueueBackgroundTaskUpdate(task, "finished", reply, nil)
 }
 
 func (s *Service) logBackgroundTaskEvent(taskID string, event agent.Event) {
@@ -499,4 +503,72 @@ func backgroundTaskContinuationPrompt(target time.Duration, elapsed time.Duratio
 		remaining = 0
 	}
 	return fmt.Sprintf("System continuation: the minimum background-task runtime is %s and only %s has elapsed so far. Continue working, deepen the investigation, verify more thoroughly, and only finish early if you are genuinely blocked. Remaining target time: about %s.", target, elapsed, remaining.Round(time.Second))
+}
+
+func (s *Service) enqueueBackgroundTaskUpdate(task *backgroundTask, outcome string, reply string, runErr error) error {
+	if s == nil || task == nil {
+		return nil
+	}
+
+	key := s.sessionKey(task.GuildID, task.ChannelID, task.UserID)
+	session := s.lookupSession(key)
+	if session == nil {
+		var err error
+		session, _, err = s.resetSession(key)
+		if err != nil {
+			return err
+		}
+	}
+
+	prompt := inboundPrompt{
+		Kind:         promptKindBackground,
+		Content:      backgroundTaskUpdatePrompt(task, outcome, reply, runErr),
+		GuildID:      task.GuildID,
+		ChannelID:    task.ChannelID,
+		LightContext: true,
+	}
+
+	select {
+	case <-session.Context.Done():
+		return context.Canceled
+	case session.Queue <- prompt:
+		return nil
+	default:
+		return fmt.Errorf("session queue is full")
+	}
+}
+
+func backgroundTaskUpdatePrompt(task *backgroundTask, outcome string, reply string, runErr error) string {
+	var builder strings.Builder
+	builder.WriteString("Internal system event for the dom agent. ")
+	builder.WriteString("A background worker finished its run and you should handle the user-facing follow-up yourself. ")
+	builder.WriteString("The worker does not speak directly to the user; you do. ")
+	builder.WriteString("Update your understanding using the handoff below and send a normal human reply to the user. ")
+	builder.WriteString("Avoid boilerplate runtime phrasing like raw session IDs unless they are genuinely useful.\n\n")
+	builder.WriteString("Background worker status: ")
+	builder.WriteString(strings.TrimSpace(outcome))
+	builder.WriteString("\n")
+	builder.WriteString("Worker task id: ")
+	builder.WriteString(strings.TrimSpace(task.ID))
+	builder.WriteString("\n")
+	builder.WriteString("Original worker prompt: ")
+	builder.WriteString(compactBackgroundTaskText(task.Prompt, 800))
+	builder.WriteString("\n")
+	builder.WriteString("Worker inherited chat snapshot: ")
+	builder.WriteString(fmt.Sprintf("%d messages (~%d tokens)\n", task.SpawnMessages, task.SpawnTokens))
+	builder.WriteString("Worker final context size: ")
+	builder.WriteString(fmt.Sprintf("%d messages (~%d tokens)\n", len(task.History), agent.EstimateHistoryTokens(task.History)))
+	if strings.TrimSpace(reply) != "" {
+		builder.WriteString("Worker final reply:\n")
+		builder.WriteString(strings.TrimSpace(reply))
+		builder.WriteString("\n")
+	}
+	if runErr != nil {
+		builder.WriteString("Worker error:\n")
+		builder.WriteString(strings.TrimSpace(runErr.Error()))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("Important: the worker's full internal context does not automatically merge into the main chat. ")
+	builder.WriteString("Use this handoff to continue naturally.")
+	return builder.String()
 }

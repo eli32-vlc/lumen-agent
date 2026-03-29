@@ -17,6 +17,29 @@ When sandboxing is enabled for a background task:
 3. the workspace is bind-mounted into the container
 4. background-task shell execution is run through `systemd-run --machine=...`
 
+In practice, that means the worker can do Linux-style system work in a cleaner environment while the dom agent still stays on the host runtime.
+
+## Worker vs sandbox
+
+These are different layers:
+
+- worker = background sub-agent runtime
+- sandbox = optional execution environment for that worker’s shell actions
+
+So a worker can exist without a sandbox.
+
+When sandboxing is enabled, the worker still owns the job, but shell execution goes through the container.
+
+## Why this is useful
+
+Real uses include:
+
+- reproducing Debian-only bugs
+- testing package installation steps
+- checking filesystem layout assumptions
+- installing build dependencies without polluting the host
+- running messier system experiments in a disposable rootfs
+
 The current implementation is aligned with:
 
 - [`systemd-nspawn`](https://www.freedesktop.org/software/systemd/man/latest/systemd-nspawn.html)
@@ -76,6 +99,13 @@ The Dom Agent can manage sandboxes with:
 
 These tools are exposed so the agent can inspect and control the container lifecycle directly instead of treating the sandbox system as hidden runtime magic.
 
+That makes sandboxing visible and debuggable:
+
+- which machines exist
+- which machine a worker used
+- whether it is still running
+- where the rootfs lives
+
 ## Runtime behavior
 
 ### Create
@@ -106,6 +136,12 @@ These tools are exposed so the agent can inspect and control the container lifec
 - If `background_tasks.sandbox.use_sudo` is enabled, Lumen will try to run those privileged sandbox commands via `sudo`, which works best with passwordless sudo.
 - If the host has low disk space or missing packages, sandbox creation can fail.
 - A half-created rootfs can leave a container directory that exists but is not usable.
+
+Also remember:
+
+- sandboxing does not automatically make prompts smarter
+- sandboxing does not automatically merge worker context back into the dom agent
+- sandboxing changes where commands run, not who owns the user-facing reply
 
 ## Why this matters
 

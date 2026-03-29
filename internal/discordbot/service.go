@@ -42,8 +42,9 @@ const (
 type promptKind string
 
 const (
-	promptKindUser      promptKind = "user"
-	promptKindHeartbeat promptKind = "heartbeat"
+	promptKindUser       promptKind = "user"
+	promptKindHeartbeat  promptKind = "heartbeat"
+	promptKindBackground promptKind = "background"
 )
 
 type Service struct {
@@ -612,6 +613,13 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 		return
 	}
 
+	if prompt.Kind == promptKindBackground {
+		if sendErr := s.sendReply(prompt, reply); sendErr != nil {
+			s.audit.Write("error", state.ID, map[string]any{"op": "send_background_followup_reply", "error": sendErr.Error()})
+		}
+		return
+	}
+
 	memoryPrompt := strings.TrimSpace(prompt.RawContent)
 	if memoryPrompt == "" {
 		memoryPrompt = strings.TrimSpace(prompt.Content)
@@ -1154,9 +1162,22 @@ func (s *Service) lookupSession(key sessionKey) *sessionState {
 	return s.sessions[key.String()]
 }
 
+func (s *Service) latestBackgroundTaskForChannel(channelID string) *backgroundTask {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return nil
+	}
+	items := s.listBackgroundTasks(channelID)
+	if len(items) == 0 {
+		return nil
+	}
+	return items[0]
+}
+
 func (s *Service) statusReport(key sessionKey) string {
 	session := s.lookupSession(key)
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
+	worker := s.latestBackgroundTaskForChannel(key.ChannelID)
 	lines := []string{"🌙 Lumen check-in"}
 
 	if session == nil {
@@ -1170,6 +1191,7 @@ func (s *Service) statusReport(key sessionKey) string {
 			contextWindowLine(estimate),
 			contextWindowBar(estimate),
 			backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+			backgroundWorkerSummary(worker),
 			fmt.Sprintf("💬 Open chats around me: %d", activeSessions),
 			"💤 This channel is quiet right now. No active chat yet.",
 		)
@@ -1187,6 +1209,7 @@ func (s *Service) statusReport(key sessionKey) string {
 		contextWindowLine(estimate),
 		contextWindowBar(estimate),
 		backgroundTaskLine(queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks),
+		backgroundWorkerSummary(worker),
 		fmt.Sprintf("💬 Open chats around me: %d", activeSessions),
 		fmt.Sprintf("🧠 This chat is carrying %d saved messages", len(history)),
 		fmt.Sprintf("📦 Base prompt + memory: ~%d tokens", estimate.SystemPromptTokens),
@@ -1219,6 +1242,26 @@ func backgroundTaskLine(queued int, running int, completed int, failed int, canc
 		return fmt.Sprintf("🛠️ Background jobs: none running, %d done, %d failed, %d canceled", completed, failed, canceled)
 	}
 	return fmt.Sprintf("🛠️ Background jobs: %d active (%d queued, %d running), %d done, %d failed, %d canceled", active, queued, running, completed, failed, canceled)
+}
+
+func backgroundWorkerSummary(task *backgroundTask) string {
+	if task == nil {
+		return "🤖 Worker context: none right now"
+	}
+
+	currentMessages := len(task.History)
+	currentTokens := agent.EstimateHistoryTokens(task.History)
+	status := strings.TrimSpace(string(task.Status))
+	if status == "" {
+		status = "unknown"
+	}
+
+	return strings.Join([]string{
+		fmt.Sprintf("🤖 Worker context: %s and separate from this chat", status),
+		fmt.Sprintf("   started with %d messages (~%d tokens)", task.SpawnMessages, task.SpawnTokens),
+		fmt.Sprintf("   now holding %d messages (~%d tokens)", currentMessages, currentTokens),
+		"   merge-back: not automatic, only the finish/fail reply comes back",
+	}, "\n")
 }
 
 func contextWindowBar(estimate agent.ContextUsageEstimate) string {
