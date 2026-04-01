@@ -106,6 +106,8 @@ func TestBuildHeartbeatPromptRequiresRealFileWrites(t *testing.T) {
 		"When multiple queued system events are present, work through all of them in this run when feasible",
 		"use tools to perform the change",
 		"Never claim a file update succeeded unless a write tool call succeeded",
+		"delete it or mark it done in the file",
+		"Use the injected heartbeat state to avoid clingy behavior",
 		"Queued system events:",
 		"Write next 3 AM check-in to heartbeat.md",
 	} {

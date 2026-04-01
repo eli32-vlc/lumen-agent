@@ -21,6 +21,7 @@ import (
 	"lumen-agent/internal/agent"
 	"lumen-agent/internal/auditlog"
 	"lumen-agent/internal/config"
+	"lumen-agent/internal/heartbeatstate"
 	"lumen-agent/internal/llm"
 	"lumen-agent/internal/skills"
 	"lumen-agent/internal/tools"
@@ -64,6 +65,7 @@ type Service struct {
 	sessions    map[string]*sessionState
 	tasks       map[string]*backgroundTask
 	stats       runtimeStats
+	heartbeatMu sync.Mutex
 }
 
 type runtimeStats struct {
@@ -441,6 +443,7 @@ func (s *Service) handleMessageCreate(_ *discordgo.Session, message *discordgo.M
 	}
 
 	key := s.sessionKey(message.GuildID, message.ChannelID, message.Author.ID)
+	s.recordInboundHeartbeatState(message)
 
 	if isEmergencyStopCommand(content) {
 		reply := emergencyStopIdleReply
@@ -1164,7 +1167,77 @@ func (s *Service) sendReply(prompt inboundPrompt, content string) error {
 		}
 	}
 
+	s.recordOutboundHeartbeatState(prompt, parts)
+
 	return nil
+}
+
+func (s *Service) recordInboundHeartbeatState(message *discordgo.MessageCreate) {
+	if s == nil || message == nil || message.Author == nil || message.Author.Bot {
+		return
+	}
+
+	content := strings.TrimSpace(message.Content)
+	if content == "" && !messageHasAttachments(message.Message) {
+		return
+	}
+	if content == "" {
+		content = describeDirectAttachments(s.prepareInboundAttachments(message.Message))
+	}
+
+	s.updateHeartbeatState(func(state heartbeatstate.State) heartbeatstate.State {
+		return heartbeatstate.ApplyUserMessage(state, content, time.Now())
+	})
+}
+
+func (s *Service) recordOutboundHeartbeatState(prompt inboundPrompt, parts []string) {
+	if s == nil || len(parts) == 0 {
+		return
+	}
+
+	message := strings.TrimSpace(strings.Join(parts, "\n"))
+	if message == "" {
+		return
+	}
+
+	proactive := prompt.Kind == promptKindHeartbeat
+	cooldown := time.Duration(0)
+	if proactive {
+		cooldown = s.proactiveNudgeCooldown()
+	}
+
+	s.updateHeartbeatState(func(state heartbeatstate.State) heartbeatstate.State {
+		return heartbeatstate.ApplyBotMessage(state, message, time.Now(), proactive, cooldown)
+	})
+}
+
+func (s *Service) updateHeartbeatState(apply func(heartbeatstate.State) heartbeatstate.State) {
+	if s == nil || apply == nil {
+		return
+	}
+
+	s.heartbeatMu.Lock()
+	defer s.heartbeatMu.Unlock()
+
+	state, err := heartbeatstate.Load(s.cfg)
+	if err != nil {
+		s.audit.Write("error", "", map[string]any{"op": "load_heartbeat_state", "error": err.Error()})
+		return
+	}
+	state = apply(state)
+	if err := heartbeatstate.Save(s.cfg, state); err != nil {
+		s.audit.Write("error", "", map[string]any{"op": "save_heartbeat_state", "error": err.Error()})
+	}
+}
+
+func (s *Service) proactiveNudgeCooldown() time.Duration {
+	interval := s.cfg.HeartbeatInterval()
+	cooldown := 3 * interval
+	minimum := 3 * time.Hour
+	if cooldown < minimum {
+		cooldown = minimum
+	}
+	return cooldown
 }
 
 func (s *Service) respondToInteraction(interaction *discordgo.InteractionCreate, content string, ephemeral bool) {

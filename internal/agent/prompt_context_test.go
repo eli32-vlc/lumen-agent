@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"lumen-agent/internal/config"
+	"lumen-agent/internal/heartbeatstate"
 	"lumen-agent/internal/skills"
 )
 
@@ -205,6 +206,42 @@ func TestHeartbeatPromptLoadsHeartbeatChecklist(t *testing.T) {
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected heartbeat prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptInjectsHeartbeatState(t *testing.T) {
+	workspace := t.TempDir()
+	sessionDir := filepath.Join(workspace, ".lumen")
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace, SessionDir: sessionDir}}}
+
+	err := heartbeatstate.Save(runner.cfg, heartbeatstate.State{
+		LastProactiveMessageAt: time.Date(2026, 4, 1, 7, 0, 0, 0, time.UTC),
+		ProactiveCountToday:    2,
+		ProactiveCountDate:     "2026-04-01",
+		LastUserMessageAt:      time.Date(2026, 4, 1, 6, 45, 0, 0, time.UTC),
+		LastTopic:              "ship the launch note",
+		LastBotMessage:         "checking in before the launch note goes out",
+		LastBotMessageAt:       time.Date(2026, 4, 1, 7, 0, 0, 0, time.UTC),
+		NextEarliestNudgeAt:    time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("save heartbeat state: %v", err)
+	}
+
+	prompt := runner.systemPrompt(ConversationContext{
+		IsHeartbeat: true,
+		Now:         time.Date(2026, 4, 1, 8, 0, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Heartbeat proactive count today: 2 (date=2026-04-01 UTC)",
+		"Heartbeat last topic: ship the launch note",
+		"Heartbeat last bot message: checking in before the launch note goes out",
+		"Heartbeat next earliest nudge at:",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
 		}
 	}
 }

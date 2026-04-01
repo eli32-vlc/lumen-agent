@@ -211,6 +211,8 @@ func buildHeartbeatPrompt(events []heartbeatSystemEvent, immediate bool, checkli
 	builder.WriteString("If an event includes an exact due time, treat it as a precise wake-up and prioritize that time-sensitive item first. ")
 	builder.WriteString("If a queued system event asks you to create, edit, append, or save a file, use tools to perform the change and verify the saved content before you reply. ")
 	builder.WriteString("Never claim a file update succeeded unless a write tool call succeeded. ")
+	builder.WriteString("If you complete a checklist item in HEARTBEAT.md, delete it or mark it done in the file and verify the saved edit so stale items do not keep waking you up. ")
+	builder.WriteString("Use the injected heartbeat state to avoid clingy behavior; if next_earliest_nudge_at is still in the future or today's proactive count is already high, stay quiet unless there is a real reason to interrupt. ")
 	builder.WriteString("If nothing needs attention, reply with HEARTBEAT_OK. If anything needs attention, reply only with the alert text and do not include HEARTBEAT_OK.")
 	if len(events) == 0 {
 		return builder.String()

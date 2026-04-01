@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"lumen-agent/internal/config"
+	"lumen-agent/internal/heartbeatstate"
 	"lumen-agent/internal/llm"
 	"lumen-agent/internal/skills"
 	"lumen-agent/internal/tools"
@@ -169,8 +170,10 @@ Heartbeat mode:
 - If a heartbeat task is ambiguous but has a safe default, choose the default and continue; only escalate when blocked or high-risk.
 - If a heartbeat request asks for file changes, perform the change with tools and verify the saved result before replying.
 - Never claim a file edit succeeded unless a tool write call succeeded.
+- When a heartbeat checklist item is completed, remove it from HEARTBEAT.md or mark it done and save the file instead of leaving stale action items behind.
 - Do not infer or repeat old tasks from prior chats during heartbeat runs. Only act on current HEARTBEAT.md content, current workspace state, or newly queued system events.
 - If a one-off reminder or check-in was already delivered, do not send it again unless the current heartbeat input explicitly asks for another one.
+- Use the injected heartbeat state to decide whether to nudge now or stay quiet. Respect last_proactive_message_at, proactive_count_today, last_user_message_at, last_topic, last_bot_message, last_bot_message_at, and next_earliest_nudge_at instead of improvising cadence from scratch every run.
 - If nothing needs attention, reply with HEARTBEAT_OK or with HEARTBEAT_OK at the start or end of a very short acknowledgment.
 - If something needs attention, do not include HEARTBEAT_OK. Return only the alert text.
 
@@ -332,8 +335,22 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 	if mcpSummary != "" {
 		lines = append(lines, "Enabled MCP servers: "+mcpSummary)
 	}
+	if heartbeatLines := r.heartbeatStatePromptLines(); len(heartbeatLines) > 0 {
+		lines = append(lines, heartbeatLines...)
+	}
 
 	return lines
+}
+
+func (r *Runner) heartbeatStatePromptLines() []string {
+	state, err := heartbeatstate.Load(r.cfg)
+	if err != nil {
+		return []string{"Heartbeat state file: unreadable (" + err.Error() + ")"}
+	}
+	if state == (heartbeatstate.State{}) {
+		return []string{"Heartbeat state file: absent or empty"}
+	}
+	return heartbeatstate.PromptLines(state)
 }
 
 func promptHistoryCompactionSummary(cfg config.Config) string {

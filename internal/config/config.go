@@ -1026,6 +1026,10 @@ func (c Config) CronJobsDir() string {
 	return filepath.Join(c.App.SessionDir, "cron-jobs")
 }
 
+func (c Config) HeartbeatStatePath() string {
+	return filepath.Join(c.App.SessionDir, "heartbeat-state.json")
+}
+
 func (c Config) LogDir() string {
 	return filepath.Join(c.App.SessionDir, "logs")
 }
