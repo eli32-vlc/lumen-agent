@@ -83,21 +83,16 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return nil
 	}
 
-	server := &Server{
-		cfg:            cfg,
-		basePath:       normalizeBasePath(cfg.Dashboard.Path),
-		activityWindow: defaultActivityWindow,
-	}
-
 	httpServer := &http.Server{
 		Addr:              cfg.Dashboard.ListenAddr,
-		Handler:           server.routes(),
+		Handler:           Handler(cfg),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("dashboard: listening on %s%s", cfg.Dashboard.ListenAddr, server.basePath)
+		basePath := normalizeBasePath(cfg.Dashboard.Path)
+		log.Printf("dashboard: listening on %s%s", cfg.Dashboard.ListenAddr, basePath)
 		err := httpServer.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("dashboard: listen failed on %s: %v", cfg.Dashboard.ListenAddr, err)
@@ -116,6 +111,15 @@ func Run(ctx context.Context, cfg config.Config) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+func Handler(cfg config.Config) http.Handler {
+	server := &Server{
+		cfg:            cfg,
+		basePath:       normalizeBasePath(cfg.Dashboard.Path),
+		activityWindow: defaultActivityWindow,
+	}
+	return server.routes()
 }
 
 func (s *Server) routes() http.Handler {

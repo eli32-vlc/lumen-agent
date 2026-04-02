@@ -38,17 +38,14 @@ func Run(ctx context.Context, cfg config.Config, audit *auditlog.Logger) error {
 		return nil
 	}
 
-	secret, err := cfg.ResolveEventWebhookSecret()
+	handler, err := Handler(cfg, audit)
 	if err != nil {
-		return fmt.Errorf("resolve event webhook secret: %w", err)
+		return err
 	}
-
-	mux := http.NewServeMux()
-	mux.Handle(cfg.EventWebhook.Path, newHandler(cfg, secret, audit))
 
 	server := &http.Server{
 		Addr:              cfg.EventWebhook.ListenAddr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -80,6 +77,17 @@ func Run(ctx context.Context, cfg config.Config, audit *auditlog.Logger) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+func Handler(cfg config.Config, audit *auditlog.Logger) (http.Handler, error) {
+	secret, err := cfg.ResolveEventWebhookSecret()
+	if err != nil {
+		return nil, fmt.Errorf("resolve event webhook secret: %w", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle(cfg.EventWebhook.Path, newHandler(cfg, secret, audit))
+	return mux, nil
 }
 
 func newHandler(cfg config.Config, secret string, audit *auditlog.Logger) http.Handler {
