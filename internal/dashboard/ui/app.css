@@ -11,6 +11,8 @@
   --danger: #ff6b6b;
   --node-width: 172px;
   --node-height: 78px;
+  --tool-width: 182px;
+  --tool-height: 88px;
 }
 
 * {
@@ -114,6 +116,7 @@ textarea {
     linear-gradient(90deg, var(--border) 1px, transparent 1px);
   background-size: 28px 28px;
   background-color: var(--panel-alt);
+  touch-action: pan-x pan-y;
 }
 
 .graph-stage {
@@ -121,6 +124,7 @@ textarea {
   min-height: 620px;
   min-width: 1320px;
   padding: 24px;
+  transform-origin: top left;
 }
 
 .graph-lines {
@@ -159,6 +163,7 @@ textarea {
   gap: 8px;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .graph-node:hover,
@@ -177,8 +182,8 @@ textarea {
 }
 
 .graph-node.is-tool {
-  width: 156px;
-  min-height: 68px;
+  width: var(--tool-width);
+  min-height: var(--tool-height);
 }
 
 .node-icon {
@@ -188,11 +193,17 @@ textarea {
 .node-label {
   font-size: 14px;
   font-weight: 700;
+  max-width: 100%;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .node-meta {
   color: var(--muted);
   font-size: 11px;
+  max-width: 100%;
 }
 
 .detail-body,

@@ -2,6 +2,7 @@
   const basePath = window.LUMEN_DASHBOARD_BASE_PATH || "";
   const stateUrl = `${basePath === "/" ? "" : basePath}/api/state`;
 
+  const graphFrame = document.getElementById("graph-frame");
   const graphStage = document.getElementById("graph-stage");
   const graphLines = document.getElementById("graph-lines");
   const toolBranch = document.getElementById("tool-branch");
@@ -29,8 +30,11 @@
   const backgroundPollMS = 2500;
   const nodeWidth = 172;
   const nodeHeight = 78;
-  const toolWidth = 156;
-  const toolHeight = 68;
+  const toolWidth = 182;
+  const toolHeight = 88;
+  const maxToolRows = 4;
+  const toolColumnGap = 92;
+  const toolRowGap = 108;
 
   let latestState = null;
   let latestToolCalls = [];
@@ -38,6 +42,8 @@
   let pollTimer = null;
   let pollInFlight = false;
   let lastSuccessAt = 0;
+  let graphScale = 1;
+  let hasAutoFit = false;
 
   function positionNode(element, layout, width, height) {
     element.style.left = `${layout.x}px`;
@@ -53,6 +59,29 @@
     const endY = to.y + to.height / 2;
     const midX = startX + (endX - startX) / 2;
     return `M ${startX} ${startY} L ${midX} ${startY} L ${midX} ${endY} L ${endX} ${endY}`;
+  }
+
+  function clampScale(value) {
+    return Math.max(0.45, Math.min(1.2, value));
+  }
+
+  function applyScale() {
+    graphStage.style.transform = `scale(${graphScale})`;
+  }
+
+  function fitGraphToFrame(contentWidth, contentHeight) {
+    const frameWidth = graphFrame.clientWidth - 24;
+    const frameHeight = graphFrame.clientHeight - 24;
+    if (frameWidth <= 0 || frameHeight <= 0) {
+      return;
+    }
+
+    const widthScale = frameWidth / contentWidth;
+    const heightScale = frameHeight / contentHeight;
+    graphScale = clampScale(Math.min(widthScale, heightScale, 1));
+    applyScale();
+    graphFrame.scrollLeft = 0;
+    graphFrame.scrollTop = 0;
   }
 
   function setPollStatus(label, mode) {
@@ -220,17 +249,27 @@
 
     const branchStartX = 1110;
     const branchCenterY = 250;
-    const branchGap = 96;
-    const branchOffset = ((toolNodes.length - 1) * branchGap) / 2;
+    const toolColumns = Math.max(1, Math.ceil(toolNodes.length / maxToolRows));
+
+    function toolLayout(index) {
+      const column = Math.floor(index / maxToolRows);
+      const row = index % maxToolRows;
+      const rowsInColumn = Math.min(maxToolRows, toolNodes.length - column * maxToolRows);
+      const columnCenterOffset = ((rowsInColumn - 1) * toolRowGap) / 2;
+      return {
+        x: branchStartX + column * (toolWidth + toolColumnGap),
+        y: branchCenterY - columnCenterOffset + row * toolRowGap,
+      };
+    }
 
     toolBranch.innerHTML = toolNodes.map((node, index) => {
-      const y = branchCenterY - branchOffset + index * branchGap;
+      const layout = toolLayout(index);
       return `
         <button
           class="graph-node is-tool ${node.call && node.call.success === false ? "is-failed" : ""}"
           type="button"
           data-node-id="${escapeHtml(node.id)}"
-          style="left:${branchStartX}px; top:${y}px;"
+          style="left:${layout.x}px; top:${layout.y}px;"
         >
           <span class="node-label">${escapeHtml(node.name)}</span>
           <span class="node-meta">${escapeHtml(formatTime(node.call.time))}</span>
@@ -274,20 +313,27 @@
     });
 
     toolNodes.forEach((node, index) => {
-      const y = branchCenterY - branchOffset + index * branchGap;
-      const toolBox = { x: branchStartX, y, width: toolWidth, height: toolHeight };
+      const layout = toolLayout(index);
+      const toolBox = { x: layout.x, y: layout.y, width: toolWidth, height: toolHeight };
       lines.push({
         path: pathBetween(baseBoxes.tool, toolBox),
         active: node.call ? node.call.success !== false : false,
       });
     });
 
-    graphStage.style.minWidth = `${Math.max(1320, branchStartX + toolWidth + 120)}px`;
-    graphLines.setAttribute("viewBox", `0 0 ${Math.max(1320, branchStartX + toolWidth + 120)} 620`);
+    const contentWidth = Math.max(1320, branchStartX + toolColumns * (toolWidth + toolColumnGap) + 120);
+    const contentHeight = Math.max(620, branchCenterY + Math.ceil(Math.min(toolNodes.length, maxToolRows) / 2) * toolRowGap + 180);
+    graphStage.style.minWidth = `${contentWidth}px`;
+    graphStage.style.minHeight = `${contentHeight}px`;
+    graphLines.setAttribute("viewBox", `0 0 ${contentWidth} ${contentHeight}`);
     graphLines.innerHTML = lines.map((line) => (
       `<path class="graph-line${line.active ? " is-active" : ""}" d="${line.path}"></path>`
     )).join("");
 
+    if (!hasAutoFit) {
+      fitGraphToFrame(contentWidth, contentHeight);
+      hasAutoFit = true;
+    }
     renderDetails(toolNodes);
   }
 
@@ -339,6 +385,15 @@
     }
     queuePoll(80);
   });
+
+  graphFrame.addEventListener("wheel", (event) => {
+    if (!event.ctrlKey && !event.metaKey) {
+      return;
+    }
+    event.preventDefault();
+    graphScale = clampScale(graphScale + (event.deltaY < 0 ? 0.08 : -0.08));
+    applyScale();
+  }, { passive: false });
 
   loadState();
 })();
