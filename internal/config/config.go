@@ -16,6 +16,7 @@ type Config struct {
 	LLM             LLMConfig             `yaml:"llm"`
 	Tools           ToolsConfig           `yaml:"tools"`
 	BackgroundTasks BackgroundTasksConfig `yaml:"background_tasks"`
+	Dashboard       DashboardConfig       `yaml:"dashboard"`
 	Discord         DiscordConfig         `yaml:"discord"`
 	GIFs            GIFConfig             `yaml:"gifs"`
 	Heartbeat       HeartbeatConfig       `yaml:"heartbeat"`
@@ -109,6 +110,12 @@ type BackgroundTaskSandboxConfig struct {
 	MachinesDir  string `yaml:"machines_dir"`
 	SetupTimeout string `yaml:"setup_timeout"`
 	AutoCleanup  bool   `yaml:"auto_cleanup"`
+}
+
+type DashboardConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	ListenAddr string `yaml:"listen_addr"`
+	Path       string `yaml:"path"`
 }
 
 type DiscordConfig struct {
@@ -295,6 +302,11 @@ func defaultConfig() Config {
 				SetupTimeout: "20m",
 				AutoCleanup:  true,
 			},
+		},
+		Dashboard: DashboardConfig{
+			Enabled:    false,
+			ListenAddr: "127.0.0.1:8788",
+			Path:       "/dashboard",
 		},
 		Discord: DiscordConfig{
 			BotToken:                    "",
@@ -525,6 +537,15 @@ func (c *Config) resolvePaths() error {
 	}
 	if c.EventWebhook.DefaultMode == "" {
 		c.EventWebhook.DefaultMode = "now"
+	}
+
+	c.Dashboard.ListenAddr = strings.TrimSpace(c.Dashboard.ListenAddr)
+	c.Dashboard.Path = strings.TrimSpace(c.Dashboard.Path)
+	if c.Dashboard.ListenAddr == "" {
+		c.Dashboard.ListenAddr = "127.0.0.1:8788"
+	}
+	if c.Dashboard.Path == "" {
+		c.Dashboard.Path = "/dashboard"
 	}
 
 	if strings.TrimSpace(c.Skills.Load.UserDir) == "" {
@@ -774,6 +795,15 @@ func (c Config) validate() error {
 		}
 		if !c.HeartbeatEnabled() {
 			return fmt.Errorf("event_webhook.enabled requires heartbeat target and schedule configuration")
+		}
+	}
+
+	if c.Dashboard.Enabled {
+		if strings.TrimSpace(c.Dashboard.ListenAddr) == "" {
+			return fmt.Errorf("dashboard.listen_addr must be set when dashboard.enabled is true")
+		}
+		if !strings.HasPrefix(c.Dashboard.Path, "/") {
+			return fmt.Errorf("dashboard.path must start with '/'")
 		}
 	}
 

@@ -1,0 +1,288 @@
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --border: #d8dce4;
+  --grid: #e8ebf0;
+  --text: #1f2937;
+  --muted: #667085;
+  --active: #f97316;
+  --active-fill: #fff1e8;
+  --line: #b8c0cc;
+  --line-active: #f97316;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.title-block h1,
+.side-panel-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.title-block p,
+.topbar-meta,
+.tool-call-meta,
+.log-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab-button,
+.zoom-controls button,
+.graph-node,
+.tool-call,
+.log-entry {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.tab-button,
+.zoom-controls button {
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+.tab-button.is-active {
+  background: #eef2f7;
+}
+
+.panels,
+.panel {
+  min-height: calc(100vh - 122px);
+}
+
+.panel {
+  display: none;
+}
+
+.panel.is-active {
+  display: block;
+}
+
+.graph-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.zoom-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.graph-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 12px;
+  height: calc(100vh - 182px);
+}
+
+.graph-frame,
+.side-panel,
+.logs-list {
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.graph-frame {
+  position: relative;
+  overflow: auto;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.graph-stage {
+  position: relative;
+  width: 1440px;
+  height: 560px;
+  transform-origin: top left;
+}
+
+.graph-lines {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.graph-line {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.graph-line.is-active {
+  stroke: var(--line-active);
+  stroke-width: 8;
+  animation: pulse-line 1.2s linear infinite;
+}
+
+.graph-node {
+  position: absolute;
+  width: 200px;
+  height: 120px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  text-align: left;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+
+.graph-node.is-active {
+  border-color: var(--active);
+  background: var(--active-fill);
+  animation: pulse-node 1.2s linear infinite;
+}
+
+.graph-node.is-selected {
+  border-color: var(--text);
+}
+
+.node-icon {
+  font-size: 22px;
+}
+
+.node-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.side-panel-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-call-list,
+.logs-list {
+  overflow: auto;
+  padding: 12px;
+}
+
+.tool-call,
+.log-entry {
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.tool-call:last-child,
+.log-entry:last-child {
+  margin-bottom: 0;
+}
+
+.tool-call-header,
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.tool-call-title,
+.log-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-call-code,
+.log-json {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #111827;
+}
+
+.empty-state {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@keyframes pulse-line {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes pulse-node {
+  0%,
+  100% {
+    background: var(--active-fill);
+  }
+
+  50% {
+    background: #ffe3d2;
+  }
+}
+
+@media (max-width: 1100px) {
+  .graph-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .graph-frame {
+    min-height: 420px;
+  }
+
+  .side-panel {
+    min-height: 280px;
+  }
+}

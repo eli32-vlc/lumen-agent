@@ -266,6 +266,65 @@ func TestHeartbeatLightContextLoadsOnlyHeartbeatChecklist(t *testing.T) {
 	}
 }
 
+func TestSystemPromptIncludesSafetyAndOutputEfficiencySections(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: true,
+		Now:             time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Executing actions with care:",
+		"Examples of actions that usually warrant confirmation:",
+		"Output efficiency:",
+		"For Discord especially, prefer one clear useful message over a long explanation.",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
+func TestSystemPromptIncludesProactiveSectionForHeartbeatOnly(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+
+	heartbeatPrompt := runner.systemPrompt(ConversationContext{
+		IsHeartbeat: true,
+		Now:         time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC),
+	})
+	if !strings.Contains(heartbeatPrompt, "Autonomous work:") {
+		t.Fatalf("expected heartbeat prompt to include proactive section")
+	}
+	if !strings.Contains(heartbeatPrompt, "You may receive wakeups, heartbeat runs, or other system-driven turns") {
+		t.Fatalf("expected heartbeat prompt to include proactive guidance")
+	}
+
+	chatPrompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: true,
+		Now:             time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC),
+	})
+	if strings.Contains(chatPrompt, "Autonomous work:") {
+		t.Fatalf("did not expect normal chat prompt to include proactive section")
+	}
+}
+
+func TestSystemPromptIncludesProactiveSectionForBackgroundTasks(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+
+	prompt := runner.systemPrompt(ConversationContext{
+		IsBackgroundTask: true,
+		Now:              time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC),
+	})
+
+	if !strings.Contains(prompt, "Autonomous work:") {
+		t.Fatalf("expected background task prompt to include proactive section")
+	}
+}
+
 func TestHeartbeatPromptLoadsLowercaseChecklistName(t *testing.T) {
 	workspace := t.TempDir()
 	writeTestFile(t, workspace, "heartbeat.md", "- [ ] Check nightly backup")

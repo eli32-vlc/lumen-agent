@@ -84,6 +84,11 @@ background_tasks:
     setup_timeout: 20m
     auto_cleanup: true
 
+dashboard:
+  enabled: false
+  listen_addr: 127.0.0.1:8788
+  path: /dashboard
+
 skills:
   enabled: true
   load:

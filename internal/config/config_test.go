@@ -239,6 +239,12 @@ func TestResolvePathsSetsDefaultMemoryDirAndToolCallLimit(t *testing.T) {
 	if cfg.LLM.RequestMaxAttempts != 3 {
 		t.Fatalf("expected default request max attempts to be 3, got %d", cfg.LLM.RequestMaxAttempts)
 	}
+	if cfg.Dashboard.ListenAddr != "127.0.0.1:8788" {
+		t.Fatalf("expected default dashboard listen addr, got %q", cfg.Dashboard.ListenAddr)
+	}
+	if cfg.Dashboard.Path != "/dashboard" {
+		t.Fatalf("expected default dashboard path, got %q", cfg.Dashboard.Path)
+	}
 	if cfg.GIFs.Provider != "giphy" {
 		t.Fatalf("expected default GIF provider %q, got %q", "giphy", cfg.GIFs.Provider)
 	}
@@ -323,6 +329,25 @@ func TestValidateRejectsUnknownGuildSessionScope(t *testing.T) {
 		t.Fatal("expected validation error for unknown discord.guild_session_scope")
 	}
 	if !strings.Contains(err.Error(), "discord.guild_session_scope") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
+func TestValidateDashboardRejectsRelativePath(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.App.WorkspaceRoot = t.TempDir()
+	cfg.App.SessionDir = t.TempDir()
+	cfg.App.MemoryDir = t.TempDir()
+	cfg.Discord.BotToken = "token"
+	cfg.Discord.AllowDirectMessages = true
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Path = "dashboard"
+
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("expected validation error for relative dashboard path")
+	}
+	if !strings.Contains(err.Error(), "dashboard.path") {
 		t.Fatalf("unexpected validation error: %v", err)
 	}
 }

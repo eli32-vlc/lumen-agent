@@ -1,44 +1,46 @@
 # Lumen Agent
 
-Lumen Agent is a Go-based Discord agent runtime for people who want a companion-style agent that is also inspectable, operational, and debuggable.
+Lumen Agent is a Go-based Discord runtime for people who do not just want an agent that can *do things*, but an agent that can stay coherent once the work gets messy.
 
-It is built around a simple idea: the hard part is not calling a model. The hard part is keeping behavior sane once you add sessions, files, long-running work, uploads, heartbeats, and background agents.
+Plenty of projects already cover the obvious checklist: model calls, tools, Discord replies, files, web access, background jobs. That is not the interesting part anymore.
 
-Lumen focuses on those runtime problems:
+Lumen exists for the part that usually breaks right after the demo:
 
-- long-running background workers
-- inspectable background logs and tool output
-- prompts that know the actual runtime state at startup
-- uploaded Discord files becoming local paths automatically
-- sessions that compact instead of growing forever
-- optional Debian `systemd-nspawn` sandboxing for background work
-- scheduled heartbeats and one-shot wakeups
+- keeping foreground chat separate from worker execution
+- making long-running work inspectable instead of magical
+- giving the model real startup context instead of vague implied state
+- handling uploads, wakeups, heartbeats, and session continuity like runtime concerns
+- treating context pressure as an operational problem, not just a prompt-writing problem
 
-## What Lumen is
+## Why Lumen exists
 
-Lumen is not just “LLM + tools + Discord.”
+If OpenClaw already gives you “agent with tools,” Lumen is the answer to a different question:
 
-It is a runtime with a few strong opinions:
+**What should the runtime look like if you want that agent to be stable, inspectable, and actually livable inside Discord?**
 
-- the agent should know what environment it is actually running in
-- long-running work should be inspectable
-- the foreground chat and the worker lane should be separate
-- users should talk to the dom agent, not to worker boilerplate
-- durable files should carry identity and continuity better than vague chat memory
-- context pressure is a runtime problem, not only a prompting problem
+The core bet is that agent quality is shaped as much by runtime architecture as by prompting.
 
-## Core capabilities
+Lumen has a few strong opinions:
 
-- Discord bot runtime with shared-channel or per-user session scope
-- OpenAI-compatible providers, including Codex-style `/responses`
-- Workspace tools for files, shell, search, Discord, weather, GIFs, web, and news
-- Background workers with inherited snapshot context, minimum runtime budgets, event logs, cancellation, and status inspection
-- Internal worker handoff: workers finish in the background and the dom agent is the one that speaks back to the user
-- Context compaction both for stored session history and on-demand model-triggered compaction
-- Heartbeat runs, queued system events, and precise one-shot wakeups
-- Sandbox lifecycle management tools for Debian `nspawn`
-- Skills system using `SKILL.md`
-- MCP server integration
+- the user should talk to one visible agent, not to worker boilerplate
+- workers should run in their own lane and hand results back cleanly
+- prompts should be built from actual runtime state and durable files
+- history should be managed deliberately instead of growing until it rots
+- proactive behavior should be scheduled and inspectable, not spooky
+
+This means Lumen is less about “here are twenty features” and more about **how those pieces are wired together so the system keeps its shape over time**.
+
+## What feels different in practice
+
+The best way to think about Lumen is not as a pile of abilities, but as a runtime that enforces boundaries:
+
+- foreground chat stays user-facing
+- background workers stay operational
+- the dom agent owns the final user reply
+- logs exist for the work that happened
+- session continuity lives in files and controlled history, not wishful memory
+
+That is the part that makes it useful as a companion-style runtime instead of just another tool-calling wrapper.
 
 ## Runtime model
 
@@ -175,9 +177,9 @@ Lumen currently ships a few core Discord slash commands:
 
 These are public in-channel replies, not “only you can see this” interaction messages.
 
-## Full setup guide
+## Setup
 
-This section is the practical path from fresh clone to a working bot.
+This is the shortest path from clone to a working bot.
 
 ### 1. What you need first
 
@@ -205,7 +207,7 @@ cd lumen-agent
 
 ### 3. Create your real config
 
-Start from the safe example:
+Start from the example:
 
 ```bash
 cp config/lumen.example.yaml config/lumen.yaml
@@ -216,20 +218,20 @@ That file is git-ignored on purpose.
 
 ### 4. Fill in the minimum required config
 
-At minimum, edit `config/lumen.yaml` and set:
+At minimum, set:
 
 - `discord.bot_token`
 - `llm.model`
 - `llm.api_key` or `llm.api_key_env`
 
-You also need to decide how the bot is allowed to operate:
+You also need to decide where the bot is allowed to operate:
 
 - `discord.allow_direct_messages`
 - `discord.allowed_guild_ids`
 - `discord.allowed_dm_user_ids`
 - `discord.allowed_outbound_channel_ids`
 
-If you want the bot to live like one shared presence in a Discord channel, keep:
+If you want one shared presence per Discord channel, keep:
 
 ```yaml
 discord:
@@ -284,7 +286,7 @@ llm:
   timeout: 180s
 ```
 
-What these matter for in plain words:
+What matters here:
 
 - `model` decides the base brain
 - `max_tokens` is reply budget
@@ -296,7 +298,7 @@ What these matter for in plain words:
 
 The example config already includes a broad tool set.
 
-If you want a practical general-purpose starter, keep at least:
+If you want a practical starter, keep at least:
 
 ```yaml
 tools:
@@ -319,18 +321,18 @@ tools:
     - search_news
 ```
 
-What these do for you:
+Why these matter:
 
 - file tools let the agent inspect and edit the workspace
 - `exec_command` gives shell access
 - `compact_context` lets the model clean up its own working set
-- background task tools let it do long work without clogging chat
+- background task tools let it work without clogging chat
 - wakeup scheduling gives you precise follow-ups
 - web and news make live research possible
 
 ### 8. Set up uploads properly
 
-If you want Discord file uploads to become usable local files, keep:
+If you want Discord uploads to become usable local files, keep:
 
 ```yaml
 discord:
@@ -344,7 +346,7 @@ That means when a user uploads a file:
 2. stores it locally
 3. rewrites the message context to include the local path
 
-This is a big quality-of-life feature for real file work.
+This is one of the details that makes real file work much less annoying.
 
 ### 9. Set up heartbeat if you want proactive behavior
 
