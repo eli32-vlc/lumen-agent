@@ -12,86 +12,61 @@
   <script>window.LUMEN_DASHBOARD_BASE_PATH = "__BASE_PATH__";</script>
   <div class="app-shell">
     <header class="topbar">
-      <div class="title-block">
-        <h1>Lumen</h1>
-        <p>Runtime pulse</p>
-      </div>
+      <h1>Lumen</h1>
       <div class="topbar-meta">
-        <div class="poll-status" id="poll-status">Live polling</div>
-        <div id="last-updated">Waiting for logs</div>
+        <div class="poll-status" id="poll-status">Live</div>
+        <div id="last-updated">Waiting</div>
       </div>
     </header>
 
-    <nav class="tabs" aria-label="Dashboard tabs">
-      <button class="tab-button is-active" type="button" data-tab="graph">Pipeline</button>
-      <button class="tab-button" type="button" data-tab="logs">Logs</button>
-    </nav>
-
-    <main class="panels">
-      <section class="panel is-active" data-panel="graph">
-        <div class="graph-toolbar">
-          <div class="zoom-controls">
-            <button id="zoom-out" type="button" aria-label="Zoom out">-</button>
-            <button id="zoom-reset" type="button" aria-label="Reset zoom">100%</button>
-            <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
-          </div>
+    <main class="workspace">
+      <section class="graph-panel">
+        <div class="panel-header">
+          <h2>Graph</h2>
         </div>
+        <div class="graph-frame" id="graph-frame">
+          <div class="graph-stage" id="graph-stage">
+            <svg class="graph-lines" id="graph-lines" aria-hidden="true"></svg>
 
-        <div class="graph-layout">
-          <div class="graph-frame" id="graph-frame">
-            <div class="graph-header">
-              <div>
-                <h2>Runtime Flow</h2>
-                <p>Short-polling snapshot of the live Discord to agent pipeline.</p>
-              </div>
-            </div>
-            <div class="graph-stage" id="graph-stage">
-              <svg class="graph-lines" viewBox="0 0 1440 560" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-                <path id="edge-discord-agent" class="graph-line" d="M 180 280 C 290 280, 340 280, 450 280"></path>
-                <path id="edge-agent-llms" class="graph-line" d="M 580 280 C 690 280, 740 280, 850 280"></path>
-                <path id="edge-llms-tool" class="graph-line" d="M 980 280 C 1090 280, 1140 280, 1250 280"></path>
-              </svg>
+            <button id="node-discord" class="graph-node" type="button" data-node="discord">
+              <span class="node-icon"><i class="fa-brands fa-discord" aria-hidden="true"></i></span>
+              <span class="node-label">Discord</span>
+            </button>
 
-              <button id="node-discord" class="graph-node" type="button" data-node="discord" style="left: 80px; top: 220px;">
-                <span class="node-icon"><i class="fa-brands fa-discord" aria-hidden="true"></i></span>
-                <span class="node-label">Discord</span>
-                <span class="node-copy">Inbound user turns and outbound replies.</span>
-              </button>
+            <button id="node-agent" class="graph-node" type="button" data-node="agent">
+              <span class="node-icon"><i class="fa-solid fa-robot" aria-hidden="true"></i></span>
+              <span class="node-label">Agent</span>
+            </button>
 
-              <button id="node-agent" class="graph-node" type="button" data-node="agent" style="left: 480px; top: 220px;">
-                <span class="node-icon"><i class="fa-solid fa-robot" aria-hidden="true"></i></span>
-                <span class="node-label">Lumen Agent</span>
-                <span class="node-copy">Prompt assembly, orchestration, and handoffs.</span>
-              </button>
+            <button id="node-llms" class="graph-node" type="button" data-node="llms">
+              <span class="node-icon"><i class="fa-solid fa-brain" aria-hidden="true"></i></span>
+              <span class="node-label">LLMs</span>
+            </button>
 
-              <button id="node-llms" class="graph-node" type="button" data-node="llms" style="left: 880px; top: 220px;">
-                <span class="node-icon"><i class="fa-solid fa-brain" aria-hidden="true"></i></span>
-                <span class="node-label">LLMs</span>
-                <span class="node-copy">Model calls currently participating in the turn.</span>
-              </button>
+            <button id="node-tool" class="graph-node" type="button" data-node="tool">
+              <span class="node-icon"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i></span>
+              <span class="node-label">Tools</span>
+            </button>
 
-              <button id="node-tool" class="graph-node" type="button" data-node="tool" style="left: 1280px; top: 220px;">
-                <span class="node-icon"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i></span>
-                <span class="node-label">Tools</span>
-                <span class="node-copy">Recent executions, durations, and failures.</span>
-              </button>
-            </div>
+            <div id="tool-branch"></div>
           </div>
-
-          <aside class="side-panel" id="tool-panel" hidden>
-            <header class="side-panel-header">
-              <h2>Tool Calls</h2>
-              <p>Click the Tools node to inspect recent executions.</p>
-            </header>
-            <div id="tool-calls" class="tool-call-list"></div>
-          </aside>
         </div>
       </section>
 
-      <section class="panel" data-panel="logs">
-        <div id="logs" class="logs-list"></div>
-      </section>
+      <aside class="detail-panel">
+        <div class="panel-header">
+          <h2 id="detail-title">Details</h2>
+        </div>
+        <div class="detail-body" id="detail-body"></div>
+      </aside>
     </main>
+
+    <section class="logs-panel">
+      <div class="panel-header">
+        <h2>Logs</h2>
+      </div>
+      <div id="logs" class="logs-list"></div>
+    </section>
   </div>
 
   <script src="app.js"></script>

@@ -1,128 +1,58 @@
 (function () {
   const basePath = window.LUMEN_DASHBOARD_BASE_PATH || "";
   const stateUrl = `${basePath === "/" ? "" : basePath}/api/state`;
-  const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
-  const panels = Array.from(document.querySelectorAll(".panel"));
+
   const graphStage = document.getElementById("graph-stage");
-  const graphFrame = document.getElementById("graph-frame");
-  const toolPanel = document.getElementById("tool-panel");
-  const toolCallsContainer = document.getElementById("tool-calls");
+  const graphLines = document.getElementById("graph-lines");
+  const toolBranch = document.getElementById("tool-branch");
   const logsContainer = document.getElementById("logs");
+  const detailTitle = document.getElementById("detail-title");
+  const detailBody = document.getElementById("detail-body");
   const lastUpdated = document.getElementById("last-updated");
   const pollStatus = document.getElementById("poll-status");
-  const zoomReset = document.getElementById("zoom-reset");
-  const nodes = {
+
+  const baseNodes = {
     discord: document.getElementById("node-discord"),
     agent: document.getElementById("node-agent"),
     llms: document.getElementById("node-llms"),
     tool: document.getElementById("node-tool"),
   };
-  const edges = {
-    "discord-agent": document.getElementById("edge-discord-agent"),
-    "agent-llms": document.getElementById("edge-agent-llms"),
-    "llms-tool": document.getElementById("edge-llms-tool"),
+
+  const baseLayout = {
+    discord: { x: 72, y: 250 },
+    agent: { x: 330, y: 250 },
+    llms: { x: 588, y: 250 },
+    tool: { x: 846, y: 250 },
   };
 
-  let scale = 1;
-  let selectedNode = "";
+  const activePollMS = 900;
+  const backgroundPollMS = 2500;
+  const nodeWidth = 172;
+  const nodeHeight = 78;
+  const toolWidth = 156;
+  const toolHeight = 68;
+
+  let latestState = null;
   let latestToolCalls = [];
+  let selectedNode = "tool";
   let pollTimer = null;
   let pollInFlight = false;
   let lastSuccessAt = 0;
 
-  const activePollMS = 900;
-  const backgroundPollMS = 2500;
-
-  function setScale(nextScale) {
-    scale = Math.max(0.6, Math.min(1.8, nextScale));
-    graphStage.style.transform = `scale(${scale})`;
-    zoomReset.textContent = `${Math.round(scale * 100)}%`;
+  function positionNode(element, layout, width, height) {
+    element.style.left = `${layout.x}px`;
+    element.style.top = `${layout.y}px`;
+    element.style.width = `${width}px`;
+    element.style.minHeight = `${height}px`;
   }
 
-  function switchTab(name) {
-    tabButtons.forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.tab === name);
-    });
-    panels.forEach((panel) => {
-      panel.classList.toggle("is-active", panel.dataset.panel === name);
-    });
-  }
-
-  function renderToolCalls(toolCalls) {
-    if (selectedNode !== "tool") {
-      toolPanel.hidden = true;
-      toolCallsContainer.innerHTML = "";
-      return;
-    }
-
-    toolPanel.hidden = false;
-    if (!toolCalls.length) {
-      toolCallsContainer.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
-      return;
-    }
-
-    toolCallsContainer.innerHTML = toolCalls.map((call) => {
-      const summaryParts = [
-        call.kind,
-        call.session_id ? `session ${call.session_id}` : "",
-        call.duration_ms ? `${call.duration_ms} ms` : "",
-        typeof call.success === "boolean" ? (call.success ? "success" : "failed") : "",
-      ].filter(Boolean);
-
-      const verbose = call.full_detail || call.detail || JSON.stringify(call.raw || {}, null, 2);
-      return `
-        <article class="tool-call">
-          <div class="tool-call-header">
-            <div class="tool-call-title">${escapeHtml(call.tool || "tool")}</div>
-            <div class="tool-call-meta">${escapeHtml(formatTime(call.time))}</div>
-          </div>
-          <div class="tool-call-meta">${escapeHtml(summaryParts.join(" · "))}</div>
-          <pre class="tool-call-code">${escapeHtml(verbose || "")}</pre>
-        </article>
-      `;
-    }).join("");
-  }
-
-  function renderLogs(logs) {
-    if (!logs.length) {
-      logsContainer.innerHTML = '<div class="empty-state">No logs yet.</div>';
-      return;
-    }
-
-    logsContainer.innerHTML = logs.map((entry) => {
-      const summary = entry.session_id ? `session ${entry.session_id}` : "runtime";
-      return `
-        <article class="log-entry">
-          <div class="log-header">
-            <div class="log-title">${escapeHtml(entry.kind)}</div>
-            <div class="log-meta">${escapeHtml(formatTime(entry.time))}</div>
-          </div>
-          <div class="log-meta">${escapeHtml(summary)}</div>
-          <pre class="log-json">${escapeHtml(JSON.stringify(entry.data || {}, null, 2))}</pre>
-        </article>
-      `;
-    }).join("");
-  }
-
-  function applyState(state) {
-    const nodeStates = Object.fromEntries((state.nodes || []).map((node) => [node.id, node.active]));
-    const edgeStates = Object.fromEntries((state.edges || []).map((edge) => [edge.id, edge.active]));
-
-    latestToolCalls = state.tool_calls || [];
-
-    Object.entries(nodes).forEach(([id, element]) => {
-      element.classList.toggle("is-active", Boolean(nodeStates[id]));
-      element.classList.toggle("is-selected", selectedNode === id);
-    });
-
-    Object.entries(edges).forEach(([id, element]) => {
-      element.classList.toggle("is-active", Boolean(edgeStates[id]));
-    });
-
-    renderToolCalls(latestToolCalls);
-    renderLogs(state.logs || []);
-    lastUpdated.textContent = state.generated_at ? `Updated ${formatTime(state.generated_at)}` : "Waiting for logs";
-    setPollStatus(document.hidden ? "Background polling" : "Live polling", "");
+  function pathBetween(from, to) {
+    const startX = from.x + from.width;
+    const startY = from.y + from.height / 2;
+    const endX = to.x;
+    const endY = to.y + to.height / 2;
+    const midX = startX + (endX - startX) / 2;
+    return `M ${startX} ${startY} L ${midX} ${startY} L ${midX} ${endY} L ${endX} ${endY}`;
   }
 
   function setPollStatus(label, mode) {
@@ -138,32 +68,6 @@
   function queuePoll(delay) {
     window.clearTimeout(pollTimer);
     pollTimer = window.setTimeout(loadState, delay);
-  }
-
-  async function loadState() {
-    if (pollInFlight) {
-      return;
-    }
-
-    pollInFlight = true;
-    try {
-      const response = await fetch(`${stateUrl}?limit=150&tool_limit=80`, { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const state = await response.json();
-      lastSuccessAt = Date.now();
-      applyState(state);
-    } catch (error) {
-      const staleForMS = lastSuccessAt ? Date.now() - lastSuccessAt : 0;
-      setPollStatus("Polling failed", "error");
-      lastUpdated.textContent = staleForMS > 0
-        ? `Dashboard unavailable, last good update ${Math.round(staleForMS / 1000)}s ago`
-        : "Dashboard unavailable";
-    } finally {
-      pollInFlight = false;
-      queuePoll(nextPollDelay());
-    }
   }
 
   function formatTime(value) {
@@ -184,47 +88,257 @@
       .replaceAll(">", "&gt;");
   }
 
-  tabButtons.forEach((button) => {
-    button.addEventListener("click", () => switchTab(button.dataset.tab));
-  });
-
-  Object.entries(nodes).forEach(([id, element]) => {
-    element.addEventListener("click", () => {
-      if (id !== "tool") {
-        selectedNode = "";
-        Object.entries(nodes).forEach(([, nodeElement]) => {
-          nodeElement.classList.remove("is-selected");
-        });
-        renderToolCalls(latestToolCalls);
+  function uniqueTools(toolCalls) {
+    const seen = new Map();
+    toolCalls.forEach((call) => {
+      const name = (call.tool || "").trim();
+      if (!name || seen.has(name)) {
         return;
       }
+      seen.set(name, call);
+    });
+    return Array.from(seen.entries()).map(([name, call]) => ({
+      id: `tool:${name}`,
+      name,
+      call,
+    }));
+  }
 
-      selectedNode = selectedNode === id ? "" : id;
-      Object.entries(nodes).forEach(([nodeID, nodeElement]) => {
-        nodeElement.classList.toggle("is-selected", selectedNode === nodeID);
+  function renderLogs(logs) {
+    if (!logs.length) {
+      logsContainer.innerHTML = '<div class="empty-state">No logs</div>';
+      return;
+    }
+
+    logsContainer.innerHTML = logs.map((entry) => {
+      const summary = entry.session_id ? `session ${entry.session_id}` : "runtime";
+      return `
+        <article class="log-entry">
+          <div class="log-head">
+            <div class="detail-title">${escapeHtml(entry.kind)}</div>
+            <div class="log-meta">${escapeHtml(formatTime(entry.time))}</div>
+          </div>
+          <div class="log-meta">${escapeHtml(summary)}</div>
+          <pre class="log-json">${escapeHtml(JSON.stringify(entry.data || {}, null, 2))}</pre>
+        </article>
+      `;
+    }).join("");
+  }
+
+  function renderDetails(toolNodes) {
+    if (!latestState) {
+      detailTitle.textContent = "Details";
+      detailBody.innerHTML = '<div class="empty-state">Waiting</div>';
+      return;
+    }
+
+    const nodeMap = Object.fromEntries((latestState.nodes || []).map((node) => [node.id, node]));
+    const selectedTool = toolNodes.find((node) => node.id === selectedNode);
+
+    if (selectedTool) {
+      const matchingCalls = latestToolCalls.filter((call) => call.tool === selectedTool.name);
+      detailTitle.textContent = selectedTool.name;
+      if (!matchingCalls.length) {
+        detailBody.innerHTML = '<div class="empty-state">No calls</div>';
+        return;
+      }
+      detailBody.innerHTML = matchingCalls.map((call) => {
+        const summaryParts = [
+          call.kind,
+          call.session_id ? `session ${call.session_id}` : "",
+          call.duration_ms ? `${call.duration_ms} ms` : "",
+          typeof call.success === "boolean" ? (call.success ? "success" : "failed") : "",
+        ].filter(Boolean);
+        const verbose = call.full_detail || call.detail || JSON.stringify(call.raw || {}, null, 2);
+        return `
+          <article class="tool-call">
+            <div class="tool-call-head">
+              <div class="detail-title">${escapeHtml(selectedTool.name)}</div>
+              <div class="tool-call-meta">${escapeHtml(formatTime(call.time))}</div>
+            </div>
+            <div class="tool-call-meta">${escapeHtml(summaryParts.join(" · "))}</div>
+            <pre class="tool-call-code">${escapeHtml(verbose || "")}</pre>
+          </article>
+        `;
+      }).join("");
+      return;
+    }
+
+    if (selectedNode === "tool") {
+      detailTitle.textContent = "Tools";
+      detailBody.innerHTML = `
+        <article class="detail-card">
+          <div class="detail-stack">
+            <div>
+              <div class="detail-key">Recent tools</div>
+              <div class="detail-value">${toolNodes.length}</div>
+            </div>
+            <div>
+              <div class="detail-key">Recent calls</div>
+              <div class="detail-value">${latestToolCalls.length}</div>
+            </div>
+          </div>
+        </article>
+      `;
+      return;
+    }
+
+    const baseNode = nodeMap[selectedNode];
+    if (baseNode) {
+      detailTitle.textContent = selectedNode;
+      detailBody.innerHTML = `
+        <article class="detail-card">
+          <div class="detail-stack">
+            <div>
+              <div class="detail-key">Status</div>
+              <div class="detail-value">${baseNode.active ? "active" : "idle"}</div>
+            </div>
+            <div>
+              <div class="detail-key">Updated</div>
+              <div class="detail-value">${escapeHtml(formatTime(latestState.generated_at))}</div>
+            </div>
+          </div>
+        </article>
+      `;
+      return;
+    }
+
+    detailTitle.textContent = "Details";
+    detailBody.innerHTML = '<div class="empty-state">Select a node</div>';
+  }
+
+  function renderGraph(state) {
+    const nodeStates = Object.fromEntries((state.nodes || []).map((node) => [node.id, node.active]));
+    const toolNodes = uniqueTools(latestToolCalls);
+
+    Object.entries(baseNodes).forEach(([id, element]) => {
+      const layout = baseLayout[id];
+      positionNode(element, layout, nodeWidth, nodeHeight);
+      element.classList.toggle("is-active", Boolean(nodeStates[id]));
+      element.classList.toggle("is-selected", selectedNode === id);
+    });
+
+    const branchStartX = 1110;
+    const branchCenterY = 250;
+    const branchGap = 96;
+    const branchOffset = ((toolNodes.length - 1) * branchGap) / 2;
+
+    toolBranch.innerHTML = toolNodes.map((node, index) => {
+      const y = branchCenterY - branchOffset + index * branchGap;
+      return `
+        <button
+          class="graph-node is-tool ${node.call && node.call.success === false ? "is-failed" : ""}"
+          type="button"
+          data-node-id="${escapeHtml(node.id)}"
+          style="left:${branchStartX}px; top:${y}px;"
+        >
+          <span class="node-label">${escapeHtml(node.name)}</span>
+          <span class="node-meta">${escapeHtml(formatTime(node.call.time))}</span>
+        </button>
+      `;
+    }).join("");
+
+    Array.from(toolBranch.querySelectorAll(".graph-node")).forEach((element) => {
+      const id = element.dataset.nodeId;
+      const node = toolNodes.find((item) => item.id === id);
+      if (!node) {
+        return;
+      }
+      const active = node.call && typeof node.call.success === "boolean" ? node.call.success : true;
+      element.classList.toggle("is-active", Boolean(active));
+      element.classList.toggle("is-selected", selectedNode === id);
+      element.addEventListener("click", () => {
+        selectedNode = id;
+        renderGraph(latestState);
+        renderDetails(toolNodes);
       });
-      renderToolCalls(latestToolCalls);
+    });
+
+    const lines = [];
+    const baseBoxes = {
+      discord: { x: baseLayout.discord.x, y: baseLayout.discord.y, width: nodeWidth, height: nodeHeight },
+      agent: { x: baseLayout.agent.x, y: baseLayout.agent.y, width: nodeWidth, height: nodeHeight },
+      llms: { x: baseLayout.llms.x, y: baseLayout.llms.y, width: nodeWidth, height: nodeHeight },
+      tool: { x: baseLayout.tool.x, y: baseLayout.tool.y, width: nodeWidth, height: nodeHeight },
+    };
+
+    [
+      ["discord", "agent"],
+      ["agent", "llms"],
+      ["llms", "tool"],
+    ].forEach(([from, to]) => {
+      lines.push({
+        path: pathBetween(baseBoxes[from], baseBoxes[to]),
+        active: Boolean(nodeStates[from] && nodeStates[to]),
+      });
+    });
+
+    toolNodes.forEach((node, index) => {
+      const y = branchCenterY - branchOffset + index * branchGap;
+      const toolBox = { x: branchStartX, y, width: toolWidth, height: toolHeight };
+      lines.push({
+        path: pathBetween(baseBoxes.tool, toolBox),
+        active: node.call ? node.call.success !== false : false,
+      });
+    });
+
+    graphStage.style.minWidth = `${Math.max(1320, branchStartX + toolWidth + 120)}px`;
+    graphLines.setAttribute("viewBox", `0 0 ${Math.max(1320, branchStartX + toolWidth + 120)} 620`);
+    graphLines.innerHTML = lines.map((line) => (
+      `<path class="graph-line${line.active ? " is-active" : ""}" d="${line.path}"></path>`
+    )).join("");
+
+    renderDetails(toolNodes);
+  }
+
+  function applyState(state) {
+    latestState = state;
+    latestToolCalls = state.tool_calls || [];
+    renderGraph(state);
+    renderLogs(state.logs || []);
+    lastUpdated.textContent = state.generated_at ? formatTime(state.generated_at) : "Waiting";
+    setPollStatus(document.hidden ? "Background" : "Live", "");
+  }
+
+  async function loadState() {
+    if (pollInFlight) {
+      return;
+    }
+
+    pollInFlight = true;
+    try {
+      const response = await fetch(`${stateUrl}?limit=160&tool_limit=80`, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const state = await response.json();
+      lastSuccessAt = Date.now();
+      applyState(state);
+    } catch (error) {
+      const staleForMS = lastSuccessAt ? Date.now() - lastSuccessAt : 0;
+      setPollStatus("Error", "error");
+      lastUpdated.textContent = staleForMS > 0 ? `${Math.round(staleForMS / 1000)}s stale` : "Unavailable";
+    } finally {
+      pollInFlight = false;
+      queuePoll(nextPollDelay());
+    }
+  }
+
+  Object.entries(baseNodes).forEach(([id, element]) => {
+    element.addEventListener("click", () => {
+      selectedNode = id;
+      if (latestState) {
+        renderGraph(latestState);
+      }
     });
   });
 
-  document.getElementById("zoom-in").addEventListener("click", () => setScale(scale + 0.1));
-  document.getElementById("zoom-out").addEventListener("click", () => setScale(scale - 0.1));
-  zoomReset.addEventListener("click", () => setScale(1));
-  graphFrame.addEventListener("wheel", (event) => {
-    if (!event.ctrlKey && !event.metaKey) {
-      return;
-    }
-    event.preventDefault();
-    setScale(scale + (event.deltaY < 0 ? 0.08 : -0.08));
-  }, { passive: false });
-
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      setPollStatus("Background polling", "paused");
+      setPollStatus("Background", "paused");
     }
     queuePoll(80);
   });
 
-  setScale(1);
   loadState();
 })();
