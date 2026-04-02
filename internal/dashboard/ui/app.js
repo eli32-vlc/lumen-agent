@@ -9,6 +9,7 @@
   const toolCallsContainer = document.getElementById("tool-calls");
   const logsContainer = document.getElementById("logs");
   const lastUpdated = document.getElementById("last-updated");
+  const pollStatus = document.getElementById("poll-status");
   const zoomReset = document.getElementById("zoom-reset");
   const nodes = {
     discord: document.getElementById("node-discord"),
@@ -25,6 +26,12 @@
   let scale = 1;
   let selectedNode = "";
   let latestToolCalls = [];
+  let pollTimer = null;
+  let pollInFlight = false;
+  let lastSuccessAt = 0;
+
+  const activePollMS = 900;
+  const backgroundPollMS = 2500;
 
   function setScale(nextScale) {
     scale = Math.max(0.6, Math.min(1.8, nextScale));
@@ -115,18 +122,47 @@
     renderToolCalls(latestToolCalls);
     renderLogs(state.logs || []);
     lastUpdated.textContent = state.generated_at ? `Updated ${formatTime(state.generated_at)}` : "Waiting for logs";
+    setPollStatus(document.hidden ? "Background polling" : "Live polling", "");
+  }
+
+  function setPollStatus(label, mode) {
+    pollStatus.textContent = label;
+    pollStatus.classList.toggle("is-error", mode === "error");
+    pollStatus.classList.toggle("is-paused", mode === "paused");
+  }
+
+  function nextPollDelay() {
+    return document.hidden ? backgroundPollMS : activePollMS;
+  }
+
+  function queuePoll(delay) {
+    window.clearTimeout(pollTimer);
+    pollTimer = window.setTimeout(loadState, delay);
   }
 
   async function loadState() {
+    if (pollInFlight) {
+      return;
+    }
+
+    pollInFlight = true;
     try {
       const response = await fetch(`${stateUrl}?limit=150&tool_limit=80`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const state = await response.json();
+      lastSuccessAt = Date.now();
       applyState(state);
     } catch (error) {
-      lastUpdated.textContent = "Dashboard unavailable";
+      const staleForMS = lastSuccessAt ? Date.now() - lastSuccessAt : 0;
+      setPollStatus("Polling failed", "error");
+      lastUpdated.textContent = staleForMS > 0
+        ? `Dashboard unavailable, last good update ${Math.round(staleForMS / 1000)}s ago`
+        : "Dashboard unavailable";
+    } finally {
+      pollInFlight = false;
+      queuePoll(nextPollDelay());
     }
   }
 
@@ -182,7 +218,13 @@
     setScale(scale + (event.deltaY < 0 ? 0.08 : -0.08));
   }, { passive: false });
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      setPollStatus("Background polling", "paused");
+    }
+    queuePoll(80);
+  });
+
   setScale(1);
   loadState();
-  window.setInterval(loadState, 1500);
 })();

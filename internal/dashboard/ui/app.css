@@ -1,14 +1,15 @@
 :root {
-  --bg: #f5f6f8;
-  --panel: #ffffff;
-  --border: #d8dce4;
-  --grid: #e8ebf0;
-  --text: #1f2937;
-  --muted: #667085;
-  --active: #f97316;
-  --active-fill: #fff1e8;
-  --line: #b8c0cc;
-  --line-active: #f97316;
+  --bg: #07111f;
+  --panel: #0d1728;
+  --panel-strong: #101d31;
+  --border: #1f314b;
+  --text: #edf4ff;
+  --muted: #90a4bf;
+  --active: #ff8f3d;
+  --active-fill: rgba(255, 143, 61, 0.14);
+  --line: #28415f;
+  --line-active: #ff8f3d;
+  --shadow: 0 24px 56px rgba(0, 0, 0, 0.38);
 }
 
 * {
@@ -19,9 +20,12 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at top left, rgba(255, 143, 61, 0.14), transparent 24%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 22%),
+    linear-gradient(180deg, #09111d 0%, var(--bg) 100%);
   color: var(--text);
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Avenir Next", "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 button,
@@ -32,22 +36,22 @@ textarea {
 
 .app-shell {
   min-height: 100vh;
-  padding: 16px;
+  padding: 18px;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .title-block h1,
 .side-panel-header h2 {
   margin: 0;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .title-block p,
@@ -59,10 +63,39 @@ textarea {
   font-size: 12px;
 }
 
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.poll-status {
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 143, 61, 0.34);
+  border-radius: 999px;
+  background: rgba(255, 143, 61, 0.12);
+  color: #ffb373;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.poll-status.is-error {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+}
+
+.poll-status.is-paused {
+  border-color: rgba(144, 164, 191, 0.26);
+  background: rgba(144, 164, 191, 0.12);
+  color: #bfd0e5;
+}
+
 .tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .tab-button,
@@ -79,10 +112,12 @@ textarea {
 .zoom-controls button {
   min-height: 36px;
   padding: 0 14px;
+  border-radius: 10px;
 }
 
 .tab-button.is-active {
-  background: #eef2f7;
+  background: #132238;
+  border-color: #315179;
 }
 
 .panels,
@@ -101,7 +136,7 @@ textarea {
 .graph-toolbar {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .zoom-controls {
@@ -121,15 +156,34 @@ textarea {
 .logs-list {
   border: 1px solid var(--border);
   background: var(--panel);
+  box-shadow: var(--shadow);
+  border-radius: 20px;
 }
 
 .graph-frame {
   position: relative;
   overflow: auto;
-  background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background:
+    linear-gradient(180deg, rgba(16, 29, 49, 0.96), rgba(9, 17, 29, 0.96));
+}
+
+.graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 0;
+}
+
+.graph-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.graph-header p,
+.side-panel-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .graph-stage {
@@ -137,46 +191,57 @@ textarea {
   width: 1440px;
   height: 560px;
   transform-origin: top left;
+  margin: 14px 0 0;
+  padding: 24px 80px;
 }
 
 .graph-lines {
   position: absolute;
-  inset: 0;
+  inset: 24px 80px 0;
   overflow: visible;
 }
 
 .graph-line {
   fill: none;
   stroke: var(--line);
-  stroke-width: 6;
+  stroke-width: 10;
   stroke-linecap: round;
+  opacity: 0.9;
 }
 
 .graph-line.is-active {
   stroke: var(--line-active);
-  stroke-width: 8;
-  animation: pulse-line 1.2s linear infinite;
+  stroke-width: 12;
+  animation: pulse-line 0.8s linear infinite;
 }
 
 .graph-node {
   position: absolute;
-  width: 200px;
-  height: 120px;
-  padding: 16px;
+  width: 240px;
+  min-height: 136px;
+  padding: 22px 20px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 12px;
+  gap: 14px;
   text-align: left;
   transform: translate(-50%, -50%);
   cursor: pointer;
+  border-radius: 20px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.graph-node:hover {
+  transform: translate(-50%, -50%) translateY(-2px);
+  box-shadow: 0 22px 46px rgba(0, 0, 0, 0.42);
 }
 
 .graph-node.is-active {
   border-color: var(--active);
   background: var(--active-fill);
-  animation: pulse-node 1.2s linear infinite;
+  animation: pulse-node 0.9s linear infinite;
 }
 
 .graph-node.is-selected {
@@ -184,12 +249,18 @@ textarea {
 }
 
 .node-icon {
-  font-size: 22px;
+  font-size: 24px;
 }
 
 .node-label {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.node-copy {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .side-panel {
@@ -206,13 +277,15 @@ textarea {
 .tool-call-list,
 .logs-list {
   overflow: auto;
-  padding: 12px;
+  padding: 14px;
 }
 
 .tool-call,
 .log-entry {
-  padding: 12px;
-  margin-bottom: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #121f33, #0d1728);
 }
 
 .tool-call:last-child,
@@ -231,7 +304,7 @@ textarea {
 .tool-call-title,
 .log-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .tool-call-code,
@@ -242,7 +315,7 @@ textarea {
   font-family: "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
-  color: #111827;
+  color: #d9e5f5;
 }
 
 .empty-state {

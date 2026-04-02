@@ -14,15 +14,16 @@
     <header class="topbar">
       <div class="title-block">
         <h1>Lumen</h1>
-        <p>View only</p>
+        <p>Runtime pulse</p>
       </div>
       <div class="topbar-meta">
+        <div class="poll-status" id="poll-status">Live polling</div>
         <div id="last-updated">Waiting for logs</div>
       </div>
     </header>
 
     <nav class="tabs" aria-label="Dashboard tabs">
-      <button class="tab-button is-active" type="button" data-tab="graph">Nodes</button>
+      <button class="tab-button is-active" type="button" data-tab="graph">Pipeline</button>
       <button class="tab-button" type="button" data-tab="logs">Logs</button>
     </nav>
 
@@ -38,6 +39,12 @@
 
         <div class="graph-layout">
           <div class="graph-frame" id="graph-frame">
+            <div class="graph-header">
+              <div>
+                <h2>Runtime Flow</h2>
+                <p>Short-polling snapshot of the live Discord to agent pipeline.</p>
+              </div>
+            </div>
             <div class="graph-stage" id="graph-stage">
               <svg class="graph-lines" viewBox="0 0 1440 560" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
                 <path id="edge-discord-agent" class="graph-line" d="M 180 280 C 290 280, 340 280, 450 280"></path>
@@ -48,21 +55,25 @@
               <button id="node-discord" class="graph-node" type="button" data-node="discord" style="left: 80px; top: 220px;">
                 <span class="node-icon"><i class="fa-brands fa-discord" aria-hidden="true"></i></span>
                 <span class="node-label">Discord</span>
+                <span class="node-copy">Inbound user turns and outbound replies.</span>
               </button>
 
               <button id="node-agent" class="graph-node" type="button" data-node="agent" style="left: 480px; top: 220px;">
                 <span class="node-icon"><i class="fa-solid fa-robot" aria-hidden="true"></i></span>
                 <span class="node-label">Lumen Agent</span>
+                <span class="node-copy">Prompt assembly, orchestration, and handoffs.</span>
               </button>
 
               <button id="node-llms" class="graph-node" type="button" data-node="llms" style="left: 880px; top: 220px;">
                 <span class="node-icon"><i class="fa-solid fa-brain" aria-hidden="true"></i></span>
                 <span class="node-label">LLMs</span>
+                <span class="node-copy">Model calls currently participating in the turn.</span>
               </button>
 
               <button id="node-tool" class="graph-node" type="button" data-node="tool" style="left: 1280px; top: 220px;">
                 <span class="node-icon"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i></span>
                 <span class="node-label">Tools</span>
+                <span class="node-copy">Recent executions, durations, and failures.</span>
               </button>
             </div>
           </div>
@@ -70,6 +81,7 @@
           <aside class="side-panel" id="tool-panel" hidden>
             <header class="side-panel-header">
               <h2>Tool Calls</h2>
+              <p>Click the Tools node to inspect recent executions.</p>
             </header>
             <div id="tool-calls" class="tool-call-list"></div>
           </aside>
