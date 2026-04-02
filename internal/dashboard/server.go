@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -96,8 +97,10 @@ func Run(ctx context.Context, cfg config.Config) error {
 
 	errCh := make(chan error, 1)
 	go func() {
+		log.Printf("dashboard: listening on %s%s", cfg.Dashboard.ListenAddr, server.basePath)
 		err := httpServer.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("dashboard: listen failed on %s: %v", cfg.Dashboard.ListenAddr, err)
 			errCh <- err
 			return
 		}
