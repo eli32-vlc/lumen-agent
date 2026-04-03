@@ -23,8 +23,19 @@
       <section class="graph-panel">
         <div class="panel-header">
           <h2>Graph</h2>
+          <div class="graph-stats" id="graph-stats"></div>
         </div>
         <div class="graph-frame" id="graph-frame">
+          <div class="graph-hud">
+            <div class="graph-controls">
+              <button type="button" id="zoom-out">-</button>
+              <button type="button" id="zoom-in">+</button>
+              <button type="button" id="zoom-fit">Fit</button>
+              <button type="button" id="zoom-reset">100%</button>
+              <button type="button" id="toggle-active-only">All</button>
+            </div>
+            <div class="graph-hint" id="graph-hint">Drag background to pan</div>
+          </div>
           <div class="graph-stage" id="graph-stage">
             <svg class="graph-lines" id="graph-lines" aria-hidden="true"></svg>
 
@@ -49,6 +60,9 @@
             </button>
 
             <div id="tool-branch"></div>
+          </div>
+          <div class="minimap" id="minimap">
+            <svg id="minimap-svg" viewBox="0 0 320 180" aria-hidden="true"></svg>
           </div>
         </div>
       </section>

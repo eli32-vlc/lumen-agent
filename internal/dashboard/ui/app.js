@@ -5,12 +5,20 @@
   const graphFrame = document.getElementById("graph-frame");
   const graphStage = document.getElementById("graph-stage");
   const graphLines = document.getElementById("graph-lines");
+  const graphStats = document.getElementById("graph-stats");
   const toolBranch = document.getElementById("tool-branch");
   const logsContainer = document.getElementById("logs");
   const detailTitle = document.getElementById("detail-title");
   const detailBody = document.getElementById("detail-body");
   const lastUpdated = document.getElementById("last-updated");
   const pollStatus = document.getElementById("poll-status");
+  const graphHint = document.getElementById("graph-hint");
+  const minimapSvg = document.getElementById("minimap-svg");
+  const zoomOutButton = document.getElementById("zoom-out");
+  const zoomInButton = document.getElementById("zoom-in");
+  const zoomFitButton = document.getElementById("zoom-fit");
+  const zoomResetButton = document.getElementById("zoom-reset");
+  const toggleActiveOnlyButton = document.getElementById("toggle-active-only");
 
   const baseNodes = {
     discord: document.getElementById("node-discord"),
@@ -44,6 +52,14 @@
   let lastSuccessAt = 0;
   let graphScale = 1;
   let hasAutoFit = false;
+  let contentWidth = 1320;
+  let contentHeight = 620;
+  let activeOnly = false;
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panScrollLeft = 0;
+  let panScrollTop = 0;
 
   function positionNode(element, layout, width, height) {
     element.style.left = `${layout.x}px`;
@@ -67,21 +83,79 @@
 
   function applyScale() {
     graphStage.style.transform = `scale(${graphScale})`;
+    zoomResetButton.textContent = `${Math.round(graphScale * 100)}%`;
+    updateMinimap();
   }
 
-  function fitGraphToFrame(contentWidth, contentHeight) {
+  function fitGraphToFrame(nextWidth, nextHeight) {
     const frameWidth = graphFrame.clientWidth - 24;
     const frameHeight = graphFrame.clientHeight - 24;
     if (frameWidth <= 0 || frameHeight <= 0) {
       return;
     }
 
-    const widthScale = frameWidth / contentWidth;
-    const heightScale = frameHeight / contentHeight;
+    const widthScale = frameWidth / nextWidth;
+    const heightScale = frameHeight / nextHeight;
     graphScale = clampScale(Math.min(widthScale, heightScale, 1));
     applyScale();
     graphFrame.scrollLeft = 0;
     graphFrame.scrollTop = 0;
+  }
+
+  function updateMinimap() {
+    if (!contentWidth || !contentHeight) {
+      return;
+    }
+    const miniWidth = 320;
+    const miniHeight = 180;
+    const viewportWidth = Math.max(12, (graphFrame.clientWidth / (contentWidth * graphScale)) * miniWidth);
+    const viewportHeight = Math.max(12, (graphFrame.clientHeight / (contentHeight * graphScale)) * miniHeight);
+    const viewportX = ((graphFrame.scrollLeft / graphScale) / contentWidth) * miniWidth;
+    const viewportY = ((graphFrame.scrollTop / graphScale) / contentHeight) * miniHeight;
+    const scaleX = miniWidth / contentWidth;
+    const scaleY = miniHeight / contentHeight;
+
+    const nodeRects = [];
+    Object.entries(baseLayout).forEach(([id, layout]) => {
+      nodeRects.push(
+        `<rect class="minimap-node${latestState && latestState.nodes && latestState.nodes.find((node) => node.id === id && node.active) ? " is-active" : ""}" x="${layout.x * scaleX}" y="${layout.y * scaleY}" width="${nodeWidth * scaleX}" height="${nodeHeight * scaleY}"></rect>`
+      );
+    });
+
+    Array.from(toolBranch.querySelectorAll(".graph-node")).forEach((element) => {
+      const x = parseFloat(element.style.left || "0");
+      const y = parseFloat(element.style.top || "0");
+      const active = element.classList.contains("is-active");
+      if (element.classList.contains("is-hidden")) {
+        return;
+      }
+      nodeRects.push(
+        `<rect class="minimap-node${active ? " is-active" : ""}" x="${x * scaleX}" y="${y * scaleY}" width="${toolWidth * scaleX}" height="${toolHeight * scaleY}"></rect>`
+      );
+    });
+
+    const linePaths = Array.from(graphLines.querySelectorAll("path")).map((path) => {
+      const active = path.classList.contains("is-active");
+      return `<path class="minimap-line${active ? " is-active" : ""}" d="${path.getAttribute("d")}"></path>`;
+    }).join("");
+
+    minimapSvg.innerHTML = `
+      <g transform="scale(${scaleX}, ${scaleY})">${linePaths}</g>
+      ${nodeRects.join("")}
+      <rect class="minimap-viewport" x="${viewportX}" y="${viewportY}" width="${viewportWidth}" height="${viewportHeight}"></rect>
+    `;
+  }
+
+  function updateGraphStats(toolNodes, state) {
+    const activeNodes = (state.nodes || []).filter((node) => node.active).length;
+    const failedTools = toolNodes.filter((node) => node.call && node.call.success === false).length;
+    const visibleTools = Array.from(toolBranch.querySelectorAll(".graph-node")).filter((node) => !node.classList.contains("is-hidden")).length;
+    graphStats.innerHTML = [
+      `nodes ${activeNodes}/${(state.nodes || []).length}`,
+      `tools ${visibleTools}`,
+      `fails ${failedTools}`,
+      `calls ${(state.tool_calls || []).length}`,
+    ].map((label) => `<div class="stat-chip">${escapeHtml(label)}</div>`).join("");
   }
 
   function setPollStatus(label, mode) {
@@ -284,8 +358,10 @@
         return;
       }
       const active = node.call && typeof node.call.success === "boolean" ? node.call.success : true;
+      const hidden = activeOnly && !active;
       element.classList.toggle("is-active", Boolean(active));
       element.classList.toggle("is-selected", selectedNode === id);
+      element.classList.toggle("is-hidden", hidden);
       element.addEventListener("click", () => {
         selectedNode = id;
         renderGraph(latestState);
@@ -314,15 +390,19 @@
 
     toolNodes.forEach((node, index) => {
       const layout = toolLayout(index);
+      const active = node.call ? node.call.success !== false : false;
+      if (activeOnly && !active) {
+        return;
+      }
       const toolBox = { x: layout.x, y: layout.y, width: toolWidth, height: toolHeight };
       lines.push({
         path: pathBetween(baseBoxes.tool, toolBox),
-        active: node.call ? node.call.success !== false : false,
+        active,
       });
     });
 
-    const contentWidth = Math.max(1320, branchStartX + toolColumns * (toolWidth + toolColumnGap) + 120);
-    const contentHeight = Math.max(620, branchCenterY + Math.ceil(Math.min(toolNodes.length, maxToolRows) / 2) * toolRowGap + 180);
+    contentWidth = Math.max(1320, branchStartX + toolColumns * (toolWidth + toolColumnGap) + 120);
+    contentHeight = Math.max(620, branchCenterY + Math.ceil(Math.min(toolNodes.length, maxToolRows) / 2) * toolRowGap + 180);
     graphStage.style.minWidth = `${contentWidth}px`;
     graphStage.style.minHeight = `${contentHeight}px`;
     graphLines.setAttribute("viewBox", `0 0 ${contentWidth} ${contentHeight}`);
@@ -333,7 +413,10 @@
     if (!hasAutoFit) {
       fitGraphToFrame(contentWidth, contentHeight);
       hasAutoFit = true;
+    } else {
+      updateMinimap();
     }
+    updateGraphStats(toolNodes, state);
     renderDetails(toolNodes);
   }
 
@@ -386,6 +469,42 @@
     queuePoll(80);
   });
 
+  graphFrame.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".graph-node")) {
+      return;
+    }
+    isPanning = true;
+    panStartX = event.clientX;
+    panStartY = event.clientY;
+    panScrollLeft = graphFrame.scrollLeft;
+    panScrollTop = graphFrame.scrollTop;
+    graphFrame.setPointerCapture(event.pointerId);
+    graphHint.textContent = "Panning";
+  });
+
+  graphFrame.addEventListener("pointermove", (event) => {
+    if (!isPanning) {
+      return;
+    }
+    graphFrame.scrollLeft = panScrollLeft - (event.clientX - panStartX);
+    graphFrame.scrollTop = panScrollTop - (event.clientY - panStartY);
+    updateMinimap();
+  });
+
+  graphFrame.addEventListener("pointerup", (event) => {
+    if (!isPanning) {
+      return;
+    }
+    isPanning = false;
+    graphHint.textContent = "Drag background to pan";
+    graphFrame.releasePointerCapture(event.pointerId);
+  });
+
+  graphFrame.addEventListener("pointercancel", () => {
+    isPanning = false;
+    graphHint.textContent = "Drag background to pan";
+  });
+
   graphFrame.addEventListener("wheel", (event) => {
     if (!event.ctrlKey && !event.metaKey) {
       return;
@@ -394,6 +513,42 @@
     graphScale = clampScale(graphScale + (event.deltaY < 0 ? 0.08 : -0.08));
     applyScale();
   }, { passive: false });
+
+  graphFrame.addEventListener("scroll", () => {
+    updateMinimap();
+  });
+
+  zoomOutButton.addEventListener("click", () => {
+    graphScale = clampScale(graphScale - 0.08);
+    applyScale();
+  });
+
+  zoomInButton.addEventListener("click", () => {
+    graphScale = clampScale(graphScale + 0.08);
+    applyScale();
+  });
+
+  zoomFitButton.addEventListener("click", () => {
+    fitGraphToFrame(contentWidth, contentHeight);
+  });
+
+  zoomResetButton.addEventListener("click", () => {
+    graphScale = 1;
+    applyScale();
+  });
+
+  toggleActiveOnlyButton.addEventListener("click", () => {
+    activeOnly = !activeOnly;
+    toggleActiveOnlyButton.textContent = activeOnly ? "Active" : "All";
+    toggleActiveOnlyButton.classList.toggle("is-active", activeOnly);
+    if (latestState) {
+      renderGraph(latestState);
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    updateMinimap();
+  });
 
   loadState();
 })();
