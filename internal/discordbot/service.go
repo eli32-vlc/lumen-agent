@@ -3,6 +3,7 @@ package discordbot
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,8 @@ const (
 	queuedReplyText        = "I'm still working through earlier messages in this session. Wait for my reply, then send the next one."
 	emergencyStopDoneReply = "Emergency stop complete. I canceled the active session in this channel."
 	emergencyStopIdleReply = "No active session was running in this channel."
+	chunkPauseMin          = 450 * time.Millisecond
+	chunkPauseJitter       = 900 * time.Millisecond
 )
 
 type promptKind string
@@ -1154,7 +1157,10 @@ func (s *Service) sendReply(prompt inboundPrompt, content string) error {
 		}
 	}
 
-	for _, part := range parts {
+	for i, part := range parts {
+		if i > 0 {
+			time.Sleep(randomChunkPause())
+		}
 		_, err := s.discord.ChannelMessageSendComplex(prompt.ChannelID, &discordgo.MessageSend{
 			Content:   part,
 			Reference: reference,
@@ -1170,6 +1176,16 @@ func (s *Service) sendReply(prompt inboundPrompt, content string) error {
 	s.recordOutboundHeartbeatState(prompt, parts)
 
 	return nil
+}
+
+func randomChunkPause() time.Duration {
+	var buf [2]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return chunkPauseMin + (chunkPauseJitter / 2)
+	}
+
+	jitterMs := binary.BigEndian.Uint16(buf[:]) % uint16(chunkPauseJitter.Milliseconds()+1)
+	return chunkPauseMin + time.Duration(jitterMs)*time.Millisecond
 }
 
 func (s *Service) recordInboundHeartbeatState(message *discordgo.MessageCreate) {

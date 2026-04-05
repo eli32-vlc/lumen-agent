@@ -44,3 +44,15 @@ func TestSplitOutgoingMessagesRemovesMessageTimePrefix(t *testing.T) {
 		t.Fatalf("unexpected part: %q", parts[0])
 	}
 }
+
+func TestRandomChunkPauseWithinRange(t *testing.T) {
+	for i := 0; i < 32; i++ {
+		pause := randomChunkPause()
+		if pause < chunkPauseMin {
+			t.Fatalf("pause below minimum: %s", pause)
+		}
+		if pause > chunkPauseMin+chunkPauseJitter {
+			t.Fatalf("pause above maximum: %s", pause)
+		}
+	}
+}

@@ -463,6 +463,8 @@ func TestSystemPromptIncludesSharedChannelSilenceGuidance(t *testing.T) {
 		"one coherent channel presence across multiple speakers",
 		"exact token <NO_REPLY>",
 		"Do not spam the channel with filler updates, repeated summaries, or \"still working\" messages that do not add new verified information.",
+		"Sound like a real person in a chat, not a helpdesk macro or a polished assistant demo.",
+		"If you use <chunk>, make each chunk feel intentional.",
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)
