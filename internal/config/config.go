@@ -425,6 +425,11 @@ func (c *Config) resolvePaths() error {
 		return fmt.Errorf("resolve background_tasks.sandbox.machines_dir: %w", err)
 	}
 	c.BackgroundTasks.Sandbox.MachinesDir = resolvedMachinesDir
+	if c.BackgroundTasks.Sandbox.Enabled {
+		if err := os.MkdirAll(c.BackgroundTasks.Sandbox.MachinesDir, 0o755); err != nil {
+			return fmt.Errorf("create background_tasks.sandbox.machines_dir: %w", err)
+		}
+	}
 	c.BackgroundTasks.Sandbox.SetupTimeout = strings.TrimSpace(c.BackgroundTasks.Sandbox.SetupTimeout)
 	if c.BackgroundTasks.Sandbox.SetupTimeout == "" {
 		c.BackgroundTasks.Sandbox.SetupTimeout = "20m"

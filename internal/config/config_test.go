@@ -261,6 +261,29 @@ func TestResolvePathsSetsDefaultMemoryDirAndToolCallLimit(t *testing.T) {
 	}
 }
 
+func TestResolvePathsCreatesSandboxMachinesDirWhenEnabled(t *testing.T) {
+	tempRoot := t.TempDir()
+
+	cfg := defaultConfig()
+	cfg.sourcePath = filepath.Join(tempRoot, "lumen.yaml")
+	cfg.App.WorkspaceRoot = "."
+	cfg.App.SessionDir = ".lumen"
+	cfg.BackgroundTasks.Sandbox.Enabled = true
+	cfg.BackgroundTasks.Sandbox.MachinesDir = ".lumen/sandboxes"
+
+	if err := cfg.resolvePaths(); err != nil {
+		t.Fatalf("resolvePaths returned error: %v", err)
+	}
+
+	info, err := os.Stat(cfg.BackgroundTasks.Sandbox.MachinesDir)
+	if err != nil {
+		t.Fatalf("stat sandbox machines dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected sandbox machines dir %q to be a directory", cfg.BackgroundTasks.Sandbox.MachinesDir)
+	}
+}
+
 func TestValidateRejectsUnknownLLMAPIType(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.App.WorkspaceRoot = t.TempDir()
