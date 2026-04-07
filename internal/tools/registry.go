@@ -68,6 +68,7 @@ func NewRegistry(cfg config.Config) (*Registry, error) {
 	registry.registerGIFTool()
 	registry.registerWebInfoTools()
 	registry.registerRSSTools()
+	registry.registerReminderTool()
 	if err := registry.registerMCPTools(context.Background()); err != nil {
 		_ = registry.Close()
 		return nil, err

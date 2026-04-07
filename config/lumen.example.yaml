@@ -57,6 +57,7 @@ tools:
     - list_rss_feeds
     - read_rss_feed
     - remove_rss_feed
+    - reminders
     - list_sandbox_containers
     - inspect_sandbox_container
     - create_sandbox_container

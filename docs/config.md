@@ -194,6 +194,12 @@ Useful patterns:
 - operator bot: add shell tools and sandbox lifecycle tools
 - long-memory bot: keep `compact_context` enabled so the model can help manage its own working set
 
+Tool-specific note:
+
+- `reminders` is a single built-in tool with `add`, `list`, `read`, and `delete` actions
+- it stores temporary reminder notes in `<session_dir>/reminders.json`
+- it does not require any extra config beyond adding `reminders` to `tools.enabled` when you use an explicit allowlist
+
 ### `background_tasks`
 
 Controls sub-agent behavior.
