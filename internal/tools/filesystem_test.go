@@ -132,6 +132,90 @@ func TestHandleReadFileReturnsLineStats(t *testing.T) {
 	if parsed["truncated"] != true {
 		t.Fatalf("expected truncated=true, got %#v", parsed["truncated"])
 	}
+	if parsed["returned_end_line"] != float64(2) {
+		t.Fatalf("unexpected returned_end_line %#v", parsed["returned_end_line"])
+	}
+}
+
+func TestHandleReadFileRespectsMaxBytes(t *testing.T) {
+	root := t.TempDir()
+	registry := &Registry{
+		root: root,
+		cfg: config.Config{
+			App: config.AppConfig{WorkspaceRoot: root},
+			Tools: config.ToolsConfig{
+				MaxFileBytes:          1 << 20,
+				MaxSearchResults:      20,
+				MaxCommandOutputBytes: 32,
+			},
+		},
+	}
+
+	if _, err := registry.handleWriteFile(context.Background(), json.RawMessage(`{"path":"notes.txt","content":"alpha\nbeta\ngamma\n","overwrite":true}`)); err != nil {
+		t.Fatalf("handleWriteFile returned error: %v", err)
+	}
+
+	result, err := registry.handleReadFile(context.Background(), json.RawMessage(`{"path":"notes.txt","max_bytes":10}`))
+	if err != nil {
+		t.Fatalf("handleReadFile returned error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	if parsed["bytes_returned"] != float64(10) {
+		t.Fatalf("unexpected bytes_returned %#v", parsed["bytes_returned"])
+	}
+	if parsed["applied_max_bytes"] != float64(10) {
+		t.Fatalf("unexpected applied_max_bytes %#v", parsed["applied_max_bytes"])
+	}
+	if parsed["truncated_by_max"] != true {
+		t.Fatalf("expected truncated_by_max=true, got %#v", parsed["truncated_by_max"])
+	}
+	if parsed["next_start_line"] != float64(2) {
+		t.Fatalf("unexpected next_start_line %#v", parsed["next_start_line"])
+	}
+}
+
+func TestHandleReadFileClampsRequestedMaxBytesToRuntimeLimit(t *testing.T) {
+	root := t.TempDir()
+	registry := &Registry{
+		root: root,
+		cfg: config.Config{
+			App: config.AppConfig{WorkspaceRoot: root},
+			Tools: config.ToolsConfig{
+				MaxFileBytes:          1 << 20,
+				MaxSearchResults:      20,
+				MaxCommandOutputBytes: 12,
+			},
+		},
+	}
+
+	if _, err := registry.handleWriteFile(context.Background(), json.RawMessage(`{"path":"notes.txt","content":"0123456789abcdef\n","overwrite":true}`)); err != nil {
+		t.Fatalf("handleWriteFile returned error: %v", err)
+	}
+
+	result, err := registry.handleReadFile(context.Background(), json.RawMessage(`{"path":"notes.txt","max_bytes":1000}`))
+	if err != nil {
+		t.Fatalf("handleReadFile returned error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	if parsed["applied_max_bytes"] != float64(12) {
+		t.Fatalf("expected applied_max_bytes to clamp to 12, got %#v", parsed["applied_max_bytes"])
+	}
+	if parsed["partial_last_line"] != true {
+		t.Fatalf("expected partial_last_line=true, got %#v", parsed["partial_last_line"])
+	}
+	if parsed["next_start_line"] != float64(1) {
+		t.Fatalf("expected next_start_line to stay on the partial line, got %#v", parsed["next_start_line"])
+	}
 }
 
 func TestHandleListDirReturnsCounts(t *testing.T) {

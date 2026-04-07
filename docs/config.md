@@ -173,6 +173,12 @@ Key fields:
 - `max_command_output_bytes`
 - `allowed_commands`
 
+Read behavior note:
+
+- `read_file` accepts an optional `max_bytes` argument so the model can request smaller chunks
+- the runtime still enforces a hard cap on returned file content
+- that hard cap is the lower of `tools.max_file_bytes` and `tools.max_command_output_bytes`
+
 Important note:
 
 If `allowed_commands` is empty, shell execution is not restricted by this config layer. If you want a stricter execution surface, fill that list intentionally.

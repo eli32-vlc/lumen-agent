@@ -428,6 +428,8 @@ func TestSystemPromptStrengthensAutonomyGuidance(t *testing.T) {
 		"When the user's intent is clear, try to finish the job end-to-end in the same turn instead of stopping at partial progress.",
 		"Use tools proactively for inspection, edits, and verification when they materially help you complete the task well.",
 		"After useful tool results, keep going toward completion unless you hit a real blocker.",
+		"When using read_file, prefer small chunked reads over large dumps.",
+		"If a file may be large, read it in sequential chunks using returned line metadata",
 		"Treat the runtime metadata and loaded workspace files in this prompt as ground truth for the current session.",
 		"Treat the machine-local time as your real sense of \"now\" for conversational awareness, day-part judgment, and answering questions like \"what time is it?\"",
 		"Treat UTC timestamps as tracking and storage metadata unless the user explicitly asks for UTC.",

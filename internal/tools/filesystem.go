@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,11 +28,12 @@ func (r *Registry) lockPaths(ctx context.Context, paths ...string) (func(), erro
 func (r *Registry) registerFilesystemTools() {
 	r.register(
 		"read_file",
-		"Read a file inside the workspace. Optionally return only a specific line range.",
+		"Read a file inside the workspace. Optionally return only a specific line range and/or cap the returned content size.",
 		objectSchema(map[string]any{
 			"path":       stringSchema("Path to the file, relative to the workspace root when not absolute."),
 			"start_line": integerSchema("Optional 1-based start line.", 1),
 			"end_line":   integerSchema("Optional 1-based end line.", 1),
+			"max_bytes":  integerSchema("Optional soft cap for returned content bytes. The runtime applies a hard upper bound as well.", 1),
 		}, "path"),
 		r.handleReadFile,
 	)
@@ -118,6 +120,7 @@ func (r *Registry) handleReadFile(_ context.Context, payload json.RawMessage) (s
 		Path      string `json:"path"`
 		StartLine int    `json:"start_line"`
 		EndLine   int    `json:"end_line"`
+		MaxBytes  int    `json:"max_bytes"`
 	}
 
 	var input args
@@ -140,37 +143,134 @@ func (r *Registry) handleReadFile(_ context.Context, payload json.RawMessage) (s
 	if info.IsDir() {
 		return "", fmt.Errorf("%s is a directory", r.relPath(path))
 	}
-	if info.Size() > r.cfg.Tools.MaxFileBytes {
-		return "", fmt.Errorf("%s exceeds max_file_bytes", r.relPath(path))
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read file: %w", err)
-	}
-
-	lines := strings.Split(string(data), "\n")
 	start := input.StartLine
 	if start <= 0 {
 		start = 1
 	}
-	end := input.EndLine
-	if end <= 0 || end > len(lines) {
-		end = len(lines)
-	}
-	if start > end {
+
+	requestedEnd := input.EndLine
+	if requestedEnd > 0 && start > requestedEnd {
 		return "", fmt.Errorf("start_line must be less than or equal to end_line")
 	}
 
-	content := strings.Join(lines[start-1:end], "\n")
+	hardMaxBytes := r.readFileHardMaxBytes()
+	appliedMaxBytes := hardMaxBytes
+	if input.MaxBytes > 0 && input.MaxBytes < appliedMaxBytes {
+		appliedMaxBytes = input.MaxBytes
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("read file: %w", err)
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	var builder strings.Builder
+	totalLines := 0
+	lastReturnedLine := 0
+	truncatedByLimit := false
+	partialLastLine := false
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return "", fmt.Errorf("read file: %w", err)
+		}
+		if err == io.EOF && line == "" {
+			break
+		}
+
+		totalLines++
+		withinRange := totalLines >= start && (requestedEnd <= 0 || totalLines <= requestedEnd)
+		if withinRange {
+			remaining := appliedMaxBytes - builder.Len()
+			if remaining <= 0 {
+				truncatedByLimit = true
+			} else {
+				chunk := line
+				if len(chunk) > remaining {
+					chunk = prefixByBytes(chunk, remaining)
+					truncatedByLimit = true
+					partialLastLine = true
+				}
+				if chunk != "" {
+					builder.WriteString(chunk)
+					lastReturnedLine = totalLines
+				}
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+	}
+
+	end := requestedEnd
+	if end <= 0 || end > totalLines {
+		end = totalLines
+	}
+
+	content := builder.String()
+	truncated := start != 1 || end != totalLines || truncatedByLimit
+	nextStartLine := 0
+	if partialLastLine && lastReturnedLine > 0 {
+		nextStartLine = lastReturnedLine
+	} else if lastReturnedLine > 0 && lastReturnedLine < totalLines {
+		nextStartLine = lastReturnedLine + 1
+	}
+
 	return jsonResult(map[string]any{
-		"path":        r.relPath(path),
-		"start_line":  start,
-		"end_line":    end,
-		"total_lines": len(lines),
-		"truncated":   start != 1 || end != len(lines),
-		"content":     content,
+		"path":                r.relPath(path),
+		"start_line":          start,
+		"end_line":            end,
+		"returned_end_line":   lastReturnedLine,
+		"next_start_line":     nextStartLine,
+		"total_lines":         totalLines,
+		"file_size_bytes":     info.Size(),
+		"requested_max_bytes": input.MaxBytes,
+		"applied_max_bytes":   appliedMaxBytes,
+		"bytes_returned":      len(content),
+		"truncated":           truncated,
+		"truncated_by_max":    truncatedByLimit,
+		"partial_last_line":   partialLastLine,
+		"content":             content,
 	})
+}
+
+func (r *Registry) readFileHardMaxBytes() int {
+	hardMax := int(r.cfg.Tools.MaxFileBytes)
+	if hardMax <= 0 {
+		hardMax = r.cfg.Tools.MaxCommandOutputBytes
+	}
+	if r.cfg.Tools.MaxCommandOutputBytes > 0 && (hardMax <= 0 || r.cfg.Tools.MaxCommandOutputBytes < hardMax) {
+		hardMax = r.cfg.Tools.MaxCommandOutputBytes
+	}
+	if hardMax <= 0 {
+		return 64 * 1024
+	}
+	return hardMax
+}
+
+func prefixByBytes(value string, limit int) string {
+	if limit <= 0 || value == "" {
+		return ""
+	}
+	if len(value) <= limit {
+		return value
+	}
+
+	cut := 0
+	for index := range value {
+		if index > limit {
+			break
+		}
+		cut = index
+	}
+	if cut == 0 {
+		return ""
+	}
+	return value[:cut]
 }
 
 func (r *Registry) handleWriteFile(ctx context.Context, payload json.RawMessage) (string, error) {
