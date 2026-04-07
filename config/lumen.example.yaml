@@ -53,6 +53,10 @@ tools:
     - schedule_heartbeat_wakeup
     - list_scheduled_wakeups
     - cancel_scheduled_wakeup
+    - add_rss_feed
+    - list_rss_feeds
+    - read_rss_feed
+    - remove_rss_feed
     - list_sandbox_containers
     - inspect_sandbox_container
     - create_sandbox_container

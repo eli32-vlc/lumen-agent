@@ -319,6 +319,10 @@ tools:
     - schedule_heartbeat_wakeup
     - list_scheduled_wakeups
     - cancel_scheduled_wakeup
+    - add_rss_feed
+    - list_rss_feeds
+    - read_rss_feed
+    - remove_rss_feed
     - search_web
     - search_news
 ```
@@ -330,6 +334,7 @@ Why these matter:
 - `compact_context` lets the model clean up its own working set
 - background task tools let it work without clogging chat
 - scheduled wakeups give you precise follow-ups, including recurring cron wakeups managed by the running app
+- RSS tools let it keep a saved feed list and pull recent posts on demand
 - web and news make live research possible
 
 ### 8. Set up uploads properly
@@ -522,6 +527,10 @@ tools:
     - schedule_heartbeat_wakeup
     - list_scheduled_wakeups
     - cancel_scheduled_wakeup
+    - add_rss_feed
+    - list_rss_feeds
+    - read_rss_feed
+    - remove_rss_feed
     - search_web
     - search_news
 

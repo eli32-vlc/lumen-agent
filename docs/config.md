@@ -403,6 +403,7 @@ Prioritize:
 - precise wakeups via `schedule_heartbeat_wakeup`
 - scheduled wakeup inspection via `list_scheduled_wakeups`
 - scheduled wakeup cancellation via `cancel_scheduled_wakeup`
+- RSS feed subscription management via `add_rss_feed`, `list_rss_feeds`, `read_rss_feed`, and `remove_rss_feed`
 
 ## Important behavior combinations
 

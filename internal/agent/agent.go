@@ -337,6 +337,8 @@ func isParallelSafeTool(name string) bool {
 		"search_news",
 		"get_weather",
 		"search_gifs",
+		"list_rss_feeds",
+		"read_rss_feed",
 		"list_background_tasks",
 		"get_background_task",
 		"get_background_task_logs",

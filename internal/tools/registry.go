@@ -31,6 +31,7 @@ type Registry struct {
 	discordClient    *http.Client
 	gifAPIBase       string
 	gifClient        *http.Client
+	rssClient        *http.Client
 	backgroundTasks  BackgroundTaskManager
 	scheduledWakeups ScheduledWakeupManager
 	sandboxes        SandboxManager
@@ -51,6 +52,9 @@ func NewRegistry(cfg config.Config) (*Registry, error) {
 		gifClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		rssClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 		locks: newResourceLockManager(),
 	}
 
@@ -63,6 +67,7 @@ func NewRegistry(cfg config.Config) (*Registry, error) {
 	registry.registerSandboxTools()
 	registry.registerGIFTool()
 	registry.registerWebInfoTools()
+	registry.registerRSSTools()
 	if err := registry.registerMCPTools(context.Background()); err != nil {
 		_ = registry.Close()
 		return nil, err
