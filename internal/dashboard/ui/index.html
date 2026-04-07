@@ -4,83 +4,154 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lumen Dashboard</title>
-  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <script>window.LUMEN_DASHBOARD_BASE_PATH = "__BASE_PATH__";</script>
   <div class="app-shell">
     <header class="topbar">
-      <h1>Lumen</h1>
+      <div>
+        <h1>Lumen Dashboard</h1>
+        <p class="topbar-copy">Runtime overview</p>
+      </div>
       <div class="topbar-meta">
-        <div class="poll-status" id="poll-status">Live</div>
-        <div id="last-updated">Waiting</div>
+        <div class="status-block">
+          <span class="status-label">Poll</span>
+          <span class="poll-status" id="poll-status">Live</span>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Updated</span>
+          <span id="last-updated">Waiting</span>
+        </div>
       </div>
     </header>
 
-    <main class="workspace">
-      <section class="graph-panel">
+    <section class="metrics-row" id="metrics-grid"></section>
+
+    <main class="dashboard-grid">
+      <section class="panel">
         <div class="panel-header">
-          <h2>Graph</h2>
-          <div class="graph-stats" id="graph-stats"></div>
+          <div>
+            <h2>Event Stream</h2>
+            <div class="panel-copy" id="table-summary">Waiting for runtime data</div>
+          </div>
+          <div class="panel-copy" id="table-meta">Sort: time</div>
         </div>
-        <div class="graph-frame" id="graph-frame">
-          <div class="graph-hud">
-            <div class="graph-controls">
-              <button type="button" id="zoom-out">-</button>
-              <button type="button" id="zoom-in">+</button>
-              <button type="button" id="zoom-fit">Fit</button>
-              <button type="button" id="zoom-reset">100%</button>
-              <button type="button" id="toggle-active-only">All</button>
-            </div>
-            <div class="graph-hint" id="graph-hint">Drag background to pan</div>
-          </div>
-          <div class="graph-stage" id="graph-stage">
-            <svg class="graph-lines" id="graph-lines" aria-hidden="true"></svg>
 
-            <button id="node-discord" class="graph-node" type="button" data-node="discord">
-              <span class="node-icon"><i class="fa-brands fa-discord" aria-hidden="true"></i></span>
-              <span class="node-label">Discord</span>
-            </button>
+        <div class="filter-bar">
+          <label class="filter-field">
+            <span>Type</span>
+            <select id="filter-type">
+              <option value="all">All</option>
+              <option value="tool">Tool</option>
+              <option value="model">Model</option>
+              <option value="status">Status</option>
+              <option value="reply">Reply</option>
+              <option value="turn">Turn</option>
+              <option value="event">Event</option>
+            </select>
+          </label>
 
-            <button id="node-agent" class="graph-node" type="button" data-node="agent">
-              <span class="node-icon"><i class="fa-solid fa-robot" aria-hidden="true"></i></span>
-              <span class="node-label">Agent</span>
-            </button>
+          <label class="filter-field">
+            <span>Scope</span>
+            <select id="filter-scope">
+              <option value="all">All</option>
+              <option value="foreground">Foreground</option>
+              <option value="background">Background</option>
+            </select>
+          </label>
 
-            <button id="node-llms" class="graph-node" type="button" data-node="llms">
-              <span class="node-icon"><i class="fa-solid fa-brain" aria-hidden="true"></i></span>
-              <span class="node-label">LLMs</span>
-            </button>
+          <label class="filter-field">
+            <span>Status</span>
+            <select id="filter-status">
+              <option value="all">All</option>
+              <option value="ok">OK</option>
+              <option value="failed">Failed</option>
+              <option value="running">Running</option>
+              <option value="info">Info</option>
+              <option value="open">Open</option>
+              <option value="sent">Sent</option>
+            </select>
+          </label>
 
-            <button id="node-tool" class="graph-node" type="button" data-node="tool">
-              <span class="node-icon"><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i></span>
-              <span class="node-label">Tools</span>
-            </button>
+          <label class="filter-field filter-search">
+            <span>Search</span>
+            <input id="filter-search" type="search" placeholder="Session, tool, detail">
+          </label>
+        </div>
 
-            <div id="tool-branch"></div>
-          </div>
-          <div class="minimap" id="minimap">
-            <svg id="minimap-svg" viewBox="0 0 320 180" aria-hidden="true"></svg>
-          </div>
+        <div class="table-wrap">
+          <table class="event-table">
+            <colgroup>
+              <col class="col-time">
+              <col class="col-session">
+              <col class="col-kind">
+              <col class="col-detail">
+              <col class="col-tokens">
+              <col class="col-duration">
+              <col class="col-status">
+            </colgroup>
+            <thead>
+              <tr>
+                <th><button type="button" class="sort-button" data-sort="time">Time</button></th>
+                <th><button type="button" class="sort-button" data-sort="session">Session</button></th>
+                <th><button type="button" class="sort-button" data-sort="kind">Kind</button></th>
+                <th><button type="button" class="sort-button" data-sort="detail">Detail</button></th>
+                <th><button type="button" class="sort-button" data-sort="tokens">Tokens</button></th>
+                <th><button type="button" class="sort-button" data-sort="duration">Duration</button></th>
+                <th><button type="button" class="sort-button" data-sort="status">Status</button></th>
+              </tr>
+            </thead>
+            <tbody id="events-table-body"></tbody>
+          </table>
         </div>
       </section>
 
-      <aside class="detail-panel">
-        <div class="panel-header">
-          <h2 id="detail-title">Details</h2>
-        </div>
-        <div class="detail-body" id="detail-body"></div>
+      <aside class="sidebar">
+        <section class="widget">
+          <div class="widget-header">
+            <h3>Quick Filters</h3>
+          </div>
+          <div class="action-grid">
+            <button type="button" class="action-button" id="action-errors">Errors</button>
+            <button type="button" class="action-button" id="action-tools">Tool Calls</button>
+            <button type="button" class="action-button" id="action-background">Background</button>
+            <button type="button" class="action-button" id="action-reset">Reset</button>
+          </div>
+        </section>
+
+        <section class="widget">
+          <div class="widget-header">
+            <h3>Pipeline</h3>
+          </div>
+          <div class="state-list" id="pipeline-list"></div>
+        </section>
+
+        <section class="widget">
+          <div class="widget-header">
+            <h3>Session Load</h3>
+          </div>
+          <div class="bar-list" id="session-bars"></div>
+        </section>
+
+        <section class="widget">
+          <div class="widget-header">
+            <h3>Memory</h3>
+          </div>
+          <div class="kv-list" id="memory-summary"></div>
+        </section>
+
+        <section class="widget">
+          <div class="widget-header">
+            <h3>Recent Activity</h3>
+          </div>
+          <div class="feed-list" id="activity-feed"></div>
+        </section>
       </aside>
     </main>
-
-    <section class="logs-panel">
-      <div class="panel-header">
-        <h2>Logs</h2>
-      </div>
-      <div id="logs" class="logs-list"></div>
-    </section>
   </div>
 
   <script src="app.js"></script>

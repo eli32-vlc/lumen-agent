@@ -34,10 +34,36 @@ var embeddedUI embed.FS
 type stateResponse struct {
 	GeneratedAt           string          `json:"generated_at"`
 	ActivityWindowSeconds int             `json:"activity_window_seconds"`
+	Summary               summaryState    `json:"summary"`
+	Memory                memoryState     `json:"memory"`
 	Nodes                 []nodeState     `json:"nodes"`
 	Edges                 []edgeState     `json:"edges"`
 	ToolCalls             []toolCallState `json:"tool_calls"`
 	Logs                  []logEntryState `json:"logs"`
+}
+
+type summaryState struct {
+	RecentTokens     int `json:"recent_tokens"`
+	ModelCalls       int `json:"model_calls"`
+	RecentToolCalls  int `json:"recent_tool_calls"`
+	ToolFailures     int `json:"tool_failures"`
+	ActiveNodes      int `json:"active_nodes"`
+	ActiveSessions   int `json:"active_sessions"`
+	BackgroundEvents int `json:"background_events"`
+}
+
+type memoryState struct {
+	Available              bool   `json:"available"`
+	LoadMode               string `json:"load_mode"`
+	FileCount              int    `json:"file_count"`
+	ShardCount             int    `json:"shard_count"`
+	LoadedShards           int    `json:"loaded_shards"`
+	TotalBytes             int64  `json:"total_bytes"`
+	HasCuratedMemory       bool   `json:"has_curated_memory"`
+	CompactionEnabled      bool   `json:"compaction_enabled"`
+	CompactionTriggerToken int    `json:"compaction_trigger_tokens"`
+	CompactionTargetToken  int    `json:"compaction_target_tokens"`
+	PreserveRecentMessages int    `json:"preserve_recent_messages"`
 }
 
 type nodeState struct {
@@ -202,7 +228,9 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := BuildState(entries, time.Now().UTC(), s.activityWindow, logLimit, toolLimit)
+	now := time.Now().UTC()
+	state := BuildState(entries, now, s.activityWindow, logLimit, toolLimit)
+	state.Memory = buildMemoryState(s.cfg)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
@@ -237,6 +265,8 @@ func BuildState(entries []auditlog.Entry, now time.Time, activityWindow time.Dur
 		"agent-llms":    false,
 		"llms-tool":     false,
 	}
+	activeSessions := make(map[string]struct{})
+	summary := summaryState{}
 
 	toolCalls := make([]toolCallState, 0, min(toolLimit, len(sorted)))
 	logs := make([]logEntryState, 0, min(logLimit, len(sorted)))
@@ -257,9 +287,26 @@ func BuildState(entries []auditlog.Entry, now time.Time, activityWindow time.Dur
 			}
 		}
 
+		switch entry.Kind {
+		case "model_done", "background_model_done":
+			summary.ModelCalls++
+			summary.RecentTokens += int(int64FromMap(entry.Data, "tokens"))
+		case "tool_done", "background_tool_done":
+			summary.RecentToolCalls++
+			if success, ok := boolFromMap(entry.Data, "success"); ok && !success {
+				summary.ToolFailures++
+			}
+		}
+		if strings.HasPrefix(entry.Kind, "background_") {
+			summary.BackgroundEvents++
+		}
+
 		timestamp, err := time.Parse(time.RFC3339, entry.Time)
 		if err != nil || timestamp.Before(cutoff) {
 			continue
+		}
+		if strings.TrimSpace(entry.SessionID) != "" {
+			activeSessions[entry.SessionID] = struct{}{}
 		}
 
 		switch entry.Kind {
@@ -281,10 +328,17 @@ func BuildState(entries []auditlog.Entry, now time.Time, activityWindow time.Dur
 			activeNodes["agent"] = true
 		}
 	}
+	for _, active := range activeNodes {
+		if active {
+			summary.ActiveNodes++
+		}
+	}
+	summary.ActiveSessions = len(activeSessions)
 
 	return stateResponse{
 		GeneratedAt:           now.UTC().Format(time.RFC3339),
 		ActivityWindowSeconds: int(activityWindow.Seconds()),
+		Summary:               summary,
 		Nodes: []nodeState{
 			{ID: "discord", Active: activeNodes["discord"]},
 			{ID: "agent", Active: activeNodes["agent"]},
@@ -299,6 +353,67 @@ func BuildState(entries []auditlog.Entry, now time.Time, activityWindow time.Dur
 		ToolCalls: toolCalls,
 		Logs:      logs,
 	}
+}
+
+func buildMemoryState(cfg config.Config) memoryState {
+	state := memoryState{
+		LoadMode:               "current + previous",
+		CompactionEnabled:      cfg.App.HistoryCompaction.Enabled,
+		CompactionTriggerToken: cfg.HistoryCompactionTriggerTokens(),
+		CompactionTargetToken:  cfg.HistoryCompactionTargetTokens(),
+		PreserveRecentMessages: cfg.HistoryCompactionPreserveRecentMessages(),
+	}
+	if cfg.App.LoadAllMemoryShards {
+		state.LoadMode = "all shards"
+	}
+
+	entries, err := os.ReadDir(cfg.App.MemoryDir)
+	if err != nil {
+		return state
+	}
+	state.Available = true
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		state.FileCount++
+		if entry.Name() == "MEMORY.md" {
+			state.HasCuratedMemory = true
+		}
+		if isMemoryShardFile(entry.Name()) {
+			state.ShardCount++
+		}
+		info, infoErr := entry.Info()
+		if infoErr == nil {
+			state.TotalBytes += info.Size()
+		}
+	}
+
+	state.LoadedShards = min(2, state.ShardCount)
+	if cfg.App.LoadAllMemoryShards {
+		state.LoadedShards = state.ShardCount
+	}
+
+	return state
+}
+
+func isMemoryShardFile(name string) bool {
+	if !strings.HasSuffix(name, ".md") || name == "MEMORY.md" {
+		return false
+	}
+
+	base := strings.TrimSuffix(name, ".md")
+	if strings.HasSuffix(base, "-AM") {
+		base = strings.TrimSuffix(base, "-AM")
+	} else if strings.HasSuffix(base, "-PM") {
+		base = strings.TrimSuffix(base, "-PM")
+	} else {
+		return false
+	}
+
+	_, err := time.Parse("2006-01-02", base)
+	return err == nil
 }
 
 func readRecentEntries(dir string, limit int) ([]auditlog.Entry, error) {

@@ -2,166 +2,108 @@
   const basePath = window.LUMEN_DASHBOARD_BASE_PATH || "";
   const stateUrl = `${basePath === "/" ? "" : basePath}/api/state`;
 
-  const graphFrame = document.getElementById("graph-frame");
-  const graphStage = document.getElementById("graph-stage");
-  const graphLines = document.getElementById("graph-lines");
-  const graphStats = document.getElementById("graph-stats");
-  const toolBranch = document.getElementById("tool-branch");
-  const logsContainer = document.getElementById("logs");
-  const detailTitle = document.getElementById("detail-title");
-  const detailBody = document.getElementById("detail-body");
+  const metricsGrid = document.getElementById("metrics-grid");
+  const tableSummary = document.getElementById("table-summary");
+  const tableMeta = document.getElementById("table-meta");
+  const tableBody = document.getElementById("events-table-body");
+  const pipelineList = document.getElementById("pipeline-list");
+  const sessionBars = document.getElementById("session-bars");
+  const memorySummary = document.getElementById("memory-summary");
+  const activityFeed = document.getElementById("activity-feed");
   const lastUpdated = document.getElementById("last-updated");
   const pollStatus = document.getElementById("poll-status");
-  const graphHint = document.getElementById("graph-hint");
-  const minimapSvg = document.getElementById("minimap-svg");
-  const zoomOutButton = document.getElementById("zoom-out");
-  const zoomInButton = document.getElementById("zoom-in");
-  const zoomFitButton = document.getElementById("zoom-fit");
-  const zoomResetButton = document.getElementById("zoom-reset");
-  const toggleActiveOnlyButton = document.getElementById("toggle-active-only");
+  const filterType = document.getElementById("filter-type");
+  const filterScope = document.getElementById("filter-scope");
+  const filterStatus = document.getElementById("filter-status");
+  const filterSearch = document.getElementById("filter-search");
+  const sortButtons = Array.from(document.querySelectorAll(".sort-button"));
+  const actionErrors = document.getElementById("action-errors");
+  const actionTools = document.getElementById("action-tools");
+  const actionBackground = document.getElementById("action-background");
+  const actionReset = document.getElementById("action-reset");
 
-  const baseNodes = {
-    discord: document.getElementById("node-discord"),
-    agent: document.getElementById("node-agent"),
-    llms: document.getElementById("node-llms"),
-    tool: document.getElementById("node-tool"),
-  };
-
-  const baseLayout = {
-    discord: { x: 72, y: 250 },
-    agent: { x: 330, y: 250 },
-    llms: { x: 588, y: 250 },
-    tool: { x: 846, y: 250 },
-  };
-
-  const activePollMS = 900;
+  const activePollMS = 1000;
   const backgroundPollMS = 2500;
-  const nodeWidth = 172;
-  const nodeHeight = 78;
-  const toolWidth = 182;
-  const toolHeight = 88;
-  const maxToolRows = 4;
-  const toolColumnGap = 92;
-  const toolRowGap = 108;
 
   let latestState = null;
-  let latestToolCalls = [];
-  let selectedNode = "tool";
+  let latestEvents = [];
   let pollTimer = null;
   let pollInFlight = false;
   let lastSuccessAt = 0;
-  let graphScale = 1;
-  let hasAutoFit = false;
-  let contentWidth = 1320;
-  let contentHeight = 620;
-  let activeOnly = false;
-  let isPanning = false;
-  let panStartX = 0;
-  let panStartY = 0;
-  let panScrollLeft = 0;
-  let panScrollTop = 0;
+  let sortState = { key: "time", direction: "desc" };
 
-  function positionNode(element, layout, width, height) {
-    element.style.left = `${layout.x}px`;
-    element.style.top = `${layout.y}px`;
-    element.style.width = `${width}px`;
-    element.style.minHeight = `${height}px`;
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
   }
 
-  function pathBetween(from, to) {
-    const startX = from.x + from.width;
-    const startY = from.y + from.height / 2;
-    const endX = to.x;
-    const endY = to.y + to.height / 2;
-    const midX = startX + (endX - startX) / 2;
-    return `M ${startX} ${startY} L ${midX} ${startY} L ${midX} ${endY} L ${endX} ${endY}`;
-  }
-
-  function clampScale(value) {
-    return Math.max(0.45, Math.min(1.2, value));
-  }
-
-  function applyScale() {
-    graphStage.style.transform = `scale(${graphScale})`;
-    zoomResetButton.textContent = `${Math.round(graphScale * 100)}%`;
-    updateMinimap();
-  }
-
-  function fitGraphToFrame(nextWidth, nextHeight) {
-    const frameWidth = graphFrame.clientWidth - 24;
-    const frameHeight = graphFrame.clientHeight - 24;
-    if (frameWidth <= 0 || frameHeight <= 0) {
-      return;
+  function formatTime(value) {
+    if (!value) {
+      return "—";
     }
-
-    const widthScale = frameWidth / nextWidth;
-    const heightScale = frameHeight / nextHeight;
-    graphScale = clampScale(Math.min(widthScale, heightScale, 1));
-    applyScale();
-    graphFrame.scrollLeft = 0;
-    graphFrame.scrollTop = 0;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+    return parsed.toLocaleString();
   }
 
-  function updateMinimap() {
-    if (!contentWidth || !contentHeight) {
-      return;
+  function formatCompactTime(value) {
+    if (!value) {
+      return "—";
     }
-    const miniWidth = 320;
-    const miniHeight = 180;
-    const viewportWidth = Math.max(12, (graphFrame.clientWidth / (contentWidth * graphScale)) * miniWidth);
-    const viewportHeight = Math.max(12, (graphFrame.clientHeight / (contentHeight * graphScale)) * miniHeight);
-    const viewportX = ((graphFrame.scrollLeft / graphScale) / contentWidth) * miniWidth;
-    const viewportY = ((graphFrame.scrollTop / graphScale) / contentHeight) * miniHeight;
-    const scaleX = miniWidth / contentWidth;
-    const scaleY = miniHeight / contentHeight;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+    return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
 
-    const nodeRects = [];
-    Object.entries(baseLayout).forEach(([id, layout]) => {
-      nodeRects.push(
-        `<rect class="minimap-node${latestState && latestState.nodes && latestState.nodes.find((node) => node.id === id && node.active) ? " is-active" : ""}" x="${layout.x * scaleX}" y="${layout.y * scaleY}" width="${nodeWidth * scaleX}" height="${nodeHeight * scaleY}"></rect>`
-      );
-    });
+  function formatNumber(value) {
+    return new Intl.NumberFormat().format(Number(value) || 0);
+  }
 
-    Array.from(toolBranch.querySelectorAll(".graph-node")).forEach((element) => {
-      const x = parseFloat(element.style.left || "0");
-      const y = parseFloat(element.style.top || "0");
-      const active = element.classList.contains("is-active");
-      if (element.classList.contains("is-hidden")) {
-        return;
+  function formatPercent(value) {
+    if (!Number.isFinite(value)) {
+      return "—";
+    }
+    return `${value.toFixed(1)}%`;
+  }
+
+  function formatDuration(value) {
+    if (!value) {
+      return "—";
+    }
+    if (value < 1000) {
+      return `${Math.round(value)} ms`;
+    }
+    return `${(value / 1000).toFixed(2)} s`;
+  }
+
+  function formatBytes(value) {
+    const size = Number(value) || 0;
+    if (size < 1024) {
+      return `${size} B`;
+    }
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(1)} KB`;
+    }
+    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function toNumber(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
       }
-      nodeRects.push(
-        `<rect class="minimap-node${active ? " is-active" : ""}" x="${x * scaleX}" y="${y * scaleY}" width="${toolWidth * scaleX}" height="${toolHeight * scaleY}"></rect>`
-      );
-    });
-
-    const linePaths = Array.from(graphLines.querySelectorAll("path")).map((path) => {
-      const active = path.classList.contains("is-active");
-      return `<path class="minimap-line${active ? " is-active" : ""}" d="${path.getAttribute("d")}"></path>`;
-    }).join("");
-
-    minimapSvg.innerHTML = `
-      <g transform="scale(${scaleX}, ${scaleY})">${linePaths}</g>
-      ${nodeRects.join("")}
-      <rect class="minimap-viewport" x="${viewportX}" y="${viewportY}" width="${viewportWidth}" height="${viewportHeight}"></rect>
-    `;
-  }
-
-  function updateGraphStats(toolNodes, state) {
-    const activeNodes = (state.nodes || []).filter((node) => node.active).length;
-    const failedTools = toolNodes.filter((node) => node.call && node.call.success === false).length;
-    const visibleTools = Array.from(toolBranch.querySelectorAll(".graph-node")).filter((node) => !node.classList.contains("is-hidden")).length;
-    graphStats.innerHTML = [
-      `nodes ${activeNodes}/${(state.nodes || []).length}`,
-      `tools ${visibleTools}`,
-      `fails ${failedTools}`,
-      `calls ${(state.tool_calls || []).length}`,
-    ].map((label) => `<div class="stat-chip">${escapeHtml(label)}</div>`).join("");
-  }
-
-  function setPollStatus(label, mode) {
-    pollStatus.textContent = label;
-    pollStatus.classList.toggle("is-error", mode === "error");
-    pollStatus.classList.toggle("is-paused", mode === "paused");
+    }
+    return 0;
   }
 
   function nextPollDelay() {
@@ -173,260 +115,386 @@
     pollTimer = window.setTimeout(loadState, delay);
   }
 
-  function formatTime(value) {
-    if (!value) {
-      return "";
-    }
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return value;
-    }
-    return parsed.toLocaleString();
+  function setPollStatus(label, mode) {
+    pollStatus.textContent = label;
+    pollStatus.classList.toggle("is-error", mode === "error");
+    pollStatus.classList.toggle("is-paused", mode === "paused");
   }
 
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
+  function eventCategory(kind) {
+    if (kind.includes("tool")) {
+      return "tool";
+    }
+    if (kind.includes("model")) {
+      return "model";
+    }
+    if (kind.includes("status")) {
+      return "status";
+    }
+    if (kind.includes("assistant")) {
+      return "reply";
+    }
+    if (kind === "turn_start") {
+      return "turn";
+    }
+    return "event";
   }
 
-  function uniqueTools(toolCalls) {
-    const seen = new Map();
-    toolCalls.forEach((call) => {
-      const name = (call.tool || "").trim();
-      if (!name || seen.has(name)) {
-        return;
+  function eventOrigin(kind) {
+    return kind.startsWith("background_") ? "background" : "foreground";
+  }
+
+  function eventStatus(kind, data) {
+    if (kind === "tool_start" || kind === "background_tool_start") {
+      return "running";
+    }
+    if (kind === "tool_done" || kind === "background_tool_done") {
+      if (data && Object.prototype.hasOwnProperty.call(data, "success")) {
+        return data.success ? "ok" : "failed";
       }
-      seen.set(name, call);
-    });
-    return Array.from(seen.entries()).map(([name, call]) => ({
-      id: `tool:${name}`,
-      name,
-      call,
-    }));
+      return "info";
+    }
+    if (kind === "turn_start") {
+      return "open";
+    }
+    if (kind === "assistant_reply" || kind === "background_assistant") {
+      return "sent";
+    }
+    if (kind === "model_done" || kind === "background_model_done") {
+      return "ok";
+    }
+    return "info";
   }
 
-  function renderLogs(logs) {
-    if (!logs.length) {
-      logsContainer.innerHTML = '<div class="empty-state">No logs</div>';
-      return;
+  function eventDetail(kind, data) {
+    if (!data) {
+      return "—";
     }
-
-    logsContainer.innerHTML = logs.map((entry) => {
-      const summary = entry.session_id ? `session ${entry.session_id}` : "runtime";
-      return `
-        <article class="log-entry">
-          <div class="log-head">
-            <div class="detail-title">${escapeHtml(entry.kind)}</div>
-            <div class="log-meta">${escapeHtml(formatTime(entry.time))}</div>
-          </div>
-          <div class="log-meta">${escapeHtml(summary)}</div>
-          <pre class="log-json">${escapeHtml(JSON.stringify(entry.data || {}, null, 2))}</pre>
-        </article>
-      `;
-    }).join("");
+    if (kind.includes("tool")) {
+      const tool = String(data.tool || "tool");
+      const detail = String(data.detail || "").trim();
+      return detail ? `${tool} · ${detail}` : tool;
+    }
+    if (kind.includes("model")) {
+      return "completion";
+    }
+    if (kind.includes("status")) {
+      return String(data.message || data.detail || "status");
+    }
+    if (kind === "turn_start") {
+      return String(data.kind || "user");
+    }
+    if (kind === "assistant_reply" || kind === "background_assistant") {
+      const length = toNumber(data.length);
+      return length > 0 ? `reply length ${length}` : "assistant reply";
+    }
+    return JSON.stringify(data);
   }
 
-  function renderDetails(toolNodes) {
-    if (!latestState) {
-      detailTitle.textContent = "Details";
-      detailBody.innerHTML = '<div class="empty-state">Waiting</div>';
-      return;
-    }
+  function normalizeEvent(entry) {
+    const data = entry.data || {};
+    const kind = String(entry.kind || "event");
+    const timestamp = Date.parse(entry.time || "");
+    const detail = eventDetail(kind, data);
+    const tokens = toNumber(data.tokens);
+    const duration = toNumber(data.duration_ms);
+    const status = eventStatus(kind, data);
+    const origin = eventOrigin(kind);
+    const category = eventCategory(kind);
+    const session = String(entry.session_id || "runtime");
 
-    const nodeMap = Object.fromEntries((latestState.nodes || []).map((node) => [node.id, node]));
-    const selectedTool = toolNodes.find((node) => node.id === selectedNode);
-
-    if (selectedTool) {
-      const matchingCalls = latestToolCalls.filter((call) => call.tool === selectedTool.name);
-      detailTitle.textContent = selectedTool.name;
-      if (!matchingCalls.length) {
-        detailBody.innerHTML = '<div class="empty-state">No calls</div>';
-        return;
-      }
-      detailBody.innerHTML = matchingCalls.map((call) => {
-        const summaryParts = [
-          call.kind,
-          call.session_id ? `session ${call.session_id}` : "",
-          call.duration_ms ? `${call.duration_ms} ms` : "",
-          typeof call.success === "boolean" ? (call.success ? "success" : "failed") : "",
-        ].filter(Boolean);
-        const verbose = call.full_detail || call.detail || JSON.stringify(call.raw || {}, null, 2);
-        return `
-          <article class="tool-call">
-            <div class="tool-call-head">
-              <div class="detail-title">${escapeHtml(selectedTool.name)}</div>
-              <div class="tool-call-meta">${escapeHtml(formatTime(call.time))}</div>
-            </div>
-            <div class="tool-call-meta">${escapeHtml(summaryParts.join(" · "))}</div>
-            <pre class="tool-call-code">${escapeHtml(verbose || "")}</pre>
-          </article>
-        `;
-      }).join("");
-      return;
-    }
-
-    if (selectedNode === "tool") {
-      detailTitle.textContent = "Tools";
-      detailBody.innerHTML = `
-        <article class="detail-card">
-          <div class="detail-stack">
-            <div>
-              <div class="detail-key">Recent tools</div>
-              <div class="detail-value">${toolNodes.length}</div>
-            </div>
-            <div>
-              <div class="detail-key">Recent calls</div>
-              <div class="detail-value">${latestToolCalls.length}</div>
-            </div>
-          </div>
-        </article>
-      `;
-      return;
-    }
-
-    const baseNode = nodeMap[selectedNode];
-    if (baseNode) {
-      detailTitle.textContent = selectedNode;
-      detailBody.innerHTML = `
-        <article class="detail-card">
-          <div class="detail-stack">
-            <div>
-              <div class="detail-key">Status</div>
-              <div class="detail-value">${baseNode.active ? "active" : "idle"}</div>
-            </div>
-            <div>
-              <div class="detail-key">Updated</div>
-              <div class="detail-value">${escapeHtml(formatTime(latestState.generated_at))}</div>
-            </div>
-          </div>
-        </article>
-      `;
-      return;
-    }
-
-    detailTitle.textContent = "Details";
-    detailBody.innerHTML = '<div class="empty-state">Select a node</div>';
-  }
-
-  function renderGraph(state) {
-    const nodeStates = Object.fromEntries((state.nodes || []).map((node) => [node.id, node.active]));
-    const toolNodes = uniqueTools(latestToolCalls);
-
-    Object.entries(baseNodes).forEach(([id, element]) => {
-      const layout = baseLayout[id];
-      positionNode(element, layout, nodeWidth, nodeHeight);
-      element.classList.toggle("is-active", Boolean(nodeStates[id]));
-      element.classList.toggle("is-selected", selectedNode === id);
-    });
-
-    const branchStartX = 1110;
-    const branchCenterY = 250;
-    const toolColumns = Math.max(1, Math.ceil(toolNodes.length / maxToolRows));
-
-    function toolLayout(index) {
-      const column = Math.floor(index / maxToolRows);
-      const row = index % maxToolRows;
-      const rowsInColumn = Math.min(maxToolRows, toolNodes.length - column * maxToolRows);
-      const columnCenterOffset = ((rowsInColumn - 1) * toolRowGap) / 2;
-      return {
-        x: branchStartX + column * (toolWidth + toolColumnGap),
-        y: branchCenterY - columnCenterOffset + row * toolRowGap,
-      };
-    }
-
-    toolBranch.innerHTML = toolNodes.map((node, index) => {
-      const layout = toolLayout(index);
-      return `
-        <button
-          class="graph-node is-tool ${node.call && node.call.success === false ? "is-failed" : ""}"
-          type="button"
-          data-node-id="${escapeHtml(node.id)}"
-          style="left:${layout.x}px; top:${layout.y}px;"
-        >
-          <span class="node-label">${escapeHtml(node.name)}</span>
-          <span class="node-meta">${escapeHtml(formatTime(node.call.time))}</span>
-        </button>
-      `;
-    }).join("");
-
-    Array.from(toolBranch.querySelectorAll(".graph-node")).forEach((element) => {
-      const id = element.dataset.nodeId;
-      const node = toolNodes.find((item) => item.id === id);
-      if (!node) {
-        return;
-      }
-      const active = node.call && typeof node.call.success === "boolean" ? node.call.success : true;
-      const hidden = activeOnly && !active;
-      element.classList.toggle("is-active", Boolean(active));
-      element.classList.toggle("is-selected", selectedNode === id);
-      element.classList.toggle("is-hidden", hidden);
-      element.addEventListener("click", () => {
-        selectedNode = id;
-        renderGraph(latestState);
-        renderDetails(toolNodes);
-      });
-    });
-
-    const lines = [];
-    const baseBoxes = {
-      discord: { x: baseLayout.discord.x, y: baseLayout.discord.y, width: nodeWidth, height: nodeHeight },
-      agent: { x: baseLayout.agent.x, y: baseLayout.agent.y, width: nodeWidth, height: nodeHeight },
-      llms: { x: baseLayout.llms.x, y: baseLayout.llms.y, width: nodeWidth, height: nodeHeight },
-      tool: { x: baseLayout.tool.x, y: baseLayout.tool.y, width: nodeWidth, height: nodeHeight },
+    return {
+      time: entry.time || "",
+      timeLabel: formatTime(entry.time),
+      timestamp: Number.isNaN(timestamp) ? 0 : timestamp,
+      session,
+      kind,
+      detail,
+      tokens,
+      duration,
+      status,
+      category,
+      origin,
+      searchText: [
+        session,
+        kind,
+        detail,
+        status,
+        origin,
+        category,
+        JSON.stringify(data),
+      ].join(" ").toLowerCase(),
     };
-
-    [
-      ["discord", "agent"],
-      ["agent", "llms"],
-      ["llms", "tool"],
-    ].forEach(([from, to]) => {
-      lines.push({
-        path: pathBetween(baseBoxes[from], baseBoxes[to]),
-        active: Boolean(nodeStates[from] && nodeStates[to]),
-      });
-    });
-
-    toolNodes.forEach((node, index) => {
-      const layout = toolLayout(index);
-      const active = node.call ? node.call.success !== false : false;
-      if (activeOnly && !active) {
-        return;
-      }
-      const toolBox = { x: layout.x, y: layout.y, width: toolWidth, height: toolHeight };
-      lines.push({
-        path: pathBetween(baseBoxes.tool, toolBox),
-        active,
-      });
-    });
-
-    contentWidth = Math.max(1320, branchStartX + toolColumns * (toolWidth + toolColumnGap) + 120);
-    contentHeight = Math.max(620, branchCenterY + Math.ceil(Math.min(toolNodes.length, maxToolRows) / 2) * toolRowGap + 180);
-    graphStage.style.minWidth = `${contentWidth}px`;
-    graphStage.style.minHeight = `${contentHeight}px`;
-    graphLines.setAttribute("viewBox", `0 0 ${contentWidth} ${contentHeight}`);
-    graphLines.innerHTML = lines.map((line) => (
-      `<path class="graph-line${line.active ? " is-active" : ""}" d="${line.path}"></path>`
-    )).join("");
-
-    if (!hasAutoFit) {
-      fitGraphToFrame(contentWidth, contentHeight);
-      hasAutoFit = true;
-    } else {
-      updateMinimap();
-    }
-    updateGraphStats(toolNodes, state);
-    renderDetails(toolNodes);
   }
 
-  function applyState(state) {
+  function compareValues(left, right, direction) {
+    if (left === right) {
+      return 0;
+    }
+    if (typeof left === "number" && typeof right === "number") {
+      return direction === "asc" ? left - right : right - left;
+    }
+    return direction === "asc"
+      ? String(left).localeCompare(String(right))
+      : String(right).localeCompare(String(left));
+  }
+
+  function filteredAndSortedEvents() {
+    const typeValue = filterType.value;
+    const scopeValue = filterScope.value;
+    const statusValue = filterStatus.value;
+    const searchValue = filterSearch.value.trim().toLowerCase();
+
+    const filtered = latestEvents.filter((event) => {
+      if (typeValue !== "all" && event.category !== typeValue) {
+        return false;
+      }
+      if (scopeValue !== "all" && event.origin !== scopeValue) {
+        return false;
+      }
+      if (statusValue !== "all" && event.status !== statusValue) {
+        return false;
+      }
+      if (searchValue && !event.searchText.includes(searchValue)) {
+        return false;
+      }
+      return true;
+    });
+
+    return filtered.sort((left, right) => {
+      switch (sortState.key) {
+        case "session":
+          return compareValues(left.session, right.session, sortState.direction);
+        case "kind":
+          return compareValues(left.kind, right.kind, sortState.direction);
+        case "detail":
+          return compareValues(left.detail, right.detail, sortState.direction);
+        case "tokens":
+          return compareValues(left.tokens, right.tokens, sortState.direction);
+        case "duration":
+          return compareValues(left.duration, right.duration, sortState.direction);
+        case "status":
+          return compareValues(left.status, right.status, sortState.direction);
+        case "time":
+        default:
+          return compareValues(left.timestamp, right.timestamp, sortState.direction);
+      }
+    });
+  }
+
+  function summarizeTrend(values) {
+    if (!values.length) {
+      return "no recent change";
+    }
+    const midpoint = Math.ceil(values.length / 2);
+    const current = values.slice(0, midpoint).reduce((sum, value) => sum + value, 0);
+    const previous = values.slice(midpoint).reduce((sum, value) => sum + value, 0);
+    if (!previous) {
+      return current ? "new activity in current window" : "no recent change";
+    }
+    const diff = ((current - previous) / previous) * 100;
+    if (Math.abs(diff) < 2) {
+      return "steady vs prior window";
+    }
+    const rounded = Math.round(diff);
+    return `${rounded > 0 ? "+" : ""}${rounded}% vs prior window`;
+  }
+
+  function renderMetrics(state) {
+    const summary = state.summary || {};
+    const memory = state.memory || {};
+    const modelEvents = latestEvents.filter((event) => event.category === "model").map((event) => event.tokens);
+    const toolEvents = latestEvents.filter((event) => event.category === "tool" && event.status !== "running");
+    const toolTotals = toolEvents.length;
+    const successfulTools = Math.max(0, (summary.recent_tool_calls || toolTotals) - (summary.tool_failures || 0));
+    const successRate = toolTotals || summary.recent_tool_calls
+      ? (successfulTools / Math.max(1, summary.recent_tool_calls || toolTotals)) * 100
+      : NaN;
+
+    const cards = [
+      {
+        label: "Recent Tokens",
+        value: formatNumber(summary.recent_tokens || 0),
+        meta: `${formatNumber(summary.model_calls || 0)} model calls`,
+        trend: summarizeTrend(modelEvents),
+      },
+      {
+        label: "Tool Success",
+        value: formatPercent(successRate),
+        meta: `${formatNumber(summary.tool_failures || 0)} failed of ${formatNumber(summary.recent_tool_calls || 0)}`,
+        trend: summarizeTrend(toolEvents.map((event) => (event.status === "failed" ? 0 : 1))),
+      },
+      {
+        label: "Active Sessions",
+        value: formatNumber(summary.active_sessions || 0),
+        meta: `${formatNumber(summary.active_nodes || 0)} nodes active`,
+        trend: `${formatNumber(summary.background_events || 0)} background events`,
+      },
+      {
+        label: "Memory Footprint",
+        value: memory.available ? formatBytes(memory.total_bytes || 0) : "Unavailable",
+        meta: memory.available
+          ? `${formatNumber(memory.loaded_shards || 0)} of ${formatNumber(memory.shard_count || 0)} shards loaded`
+          : "memory directory not readable",
+        trend: memory.compaction_enabled ? "compaction enabled" : "compaction disabled",
+      },
+    ];
+
+    metricsGrid.innerHTML = cards.map((card) => `
+      <article class="metric-card">
+        <div class="metric-label">${escapeHtml(card.label)}</div>
+        <div class="metric-value">${escapeHtml(card.value)}</div>
+        <div class="metric-meta">${escapeHtml(card.meta)}</div>
+        <div class="metric-label">${escapeHtml(card.trend)}</div>
+      </article>
+    `).join("");
+  }
+
+  function renderTable() {
+    const rows = filteredAndSortedEvents();
+    updateSortButtons();
+
+    tableSummary.textContent = latestEvents.length
+      ? `${rows.length} of ${latestEvents.length} rows visible`
+      : "Waiting for runtime data";
+    tableMeta.textContent = `Sort: ${sortState.key} ${sortState.direction}`;
+
+    if (!rows.length) {
+      tableBody.innerHTML = '<tr><td colspan="7" class="empty-state">No matching events</td></tr>';
+      return;
+    }
+
+    tableBody.innerHTML = rows.map((event) => `
+      <tr>
+        <td title="${escapeHtml(event.timeLabel)}">${escapeHtml(event.timeLabel)}</td>
+        <td title="${escapeHtml(event.session)}">${escapeHtml(event.session)}</td>
+        <td title="${escapeHtml(event.kind)}">${escapeHtml(event.kind)}</td>
+        <td title="${escapeHtml(event.detail)}">${escapeHtml(event.detail)}</td>
+        <td>${event.tokens ? escapeHtml(formatNumber(event.tokens)) : "—"}</td>
+        <td>${escapeHtml(formatDuration(event.duration))}</td>
+        <td class="cell-status status-${escapeHtml(event.status)}">${escapeHtml(event.status)}</td>
+      </tr>
+    `).join("");
+  }
+
+  function renderPipeline(state) {
+    const nodes = state.nodes || [];
+    if (!nodes.length) {
+      pipelineList.innerHTML = '<div class="empty-state">No pipeline state</div>';
+      return;
+    }
+
+    pipelineList.innerHTML = nodes.map((node) => `
+      <div class="state-row">
+        <div class="state-name">${escapeHtml(node.id)}</div>
+        <div class="state-value ${node.active ? "status-ok" : "status-info"}">${node.active ? "active" : "idle"}</div>
+      </div>
+    `).join("");
+  }
+
+  function renderSessionBars() {
+    const bySession = new Map();
+
+    latestEvents.forEach((event) => {
+      const current = bySession.get(event.session) || { session: event.session, tokens: 0, events: 0, failures: 0 };
+      current.tokens += event.tokens;
+      current.events += 1;
+      current.failures += event.status === "failed" ? 1 : 0;
+      bySession.set(event.session, current);
+    });
+
+    const rows = Array.from(bySession.values())
+      .sort((left, right) => right.tokens - left.tokens || right.events - left.events)
+      .slice(0, 6);
+
+    if (!rows.length) {
+      sessionBars.innerHTML = '<div class="empty-state">No session activity</div>';
+      return;
+    }
+
+    const maxTokens = Math.max(1, ...rows.map((row) => row.tokens));
+    sessionBars.innerHTML = rows.map((row) => `
+      <div class="bar-row">
+        <div class="bar-row-head">
+          <div class="bar-label">${escapeHtml(row.session)}</div>
+          <div class="bar-meta">${escapeHtml(`${formatNumber(row.tokens)} tok / ${formatNumber(row.events)} ev`)}</div>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.max(8, (row.tokens / maxTokens) * 100)}%"></div>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  function renderMemory(state) {
+    const memory = state.memory || {};
+    if (!memory.available) {
+      memorySummary.innerHTML = '<div class="empty-state">Memory directory unavailable</div>';
+      return;
+    }
+
+    const items = [
+      ["Load mode", memory.load_mode || "—"],
+      ["Files", formatNumber(memory.file_count || 0)],
+      ["Shards", `${formatNumber(memory.loaded_shards || 0)} / ${formatNumber(memory.shard_count || 0)}`],
+      ["Curated", memory.has_curated_memory ? "yes" : "no"],
+      ["Storage", formatBytes(memory.total_bytes || 0)],
+      ["Compaction", memory.compaction_enabled ? "enabled" : "disabled"],
+      ["Trigger", memory.compaction_trigger_tokens ? `${formatNumber(memory.compaction_trigger_tokens)} tok` : "—"],
+      ["Target", memory.compaction_target_tokens ? `${formatNumber(memory.compaction_target_tokens)} tok` : "—"],
+    ];
+
+    memorySummary.innerHTML = items.map(([key, value]) => `
+      <div class="kv-row">
+        <div class="kv-key">${escapeHtml(key)}</div>
+        <div class="kv-value">${escapeHtml(String(value))}</div>
+      </div>
+    `).join("");
+  }
+
+  function renderFeed() {
+    const rows = latestEvents.slice(0, 8);
+    if (!rows.length) {
+      activityFeed.innerHTML = '<div class="empty-state">No recent activity</div>';
+      return;
+    }
+
+    activityFeed.innerHTML = rows.map((event) => `
+      <div class="feed-row">
+        <div class="feed-title" title="${escapeHtml(`${event.kind} · ${event.detail}`)}">${escapeHtml(`${event.kind} · ${event.detail}`)}</div>
+        <div class="feed-time">${escapeHtml(formatCompactTime(event.time))}</div>
+      </div>
+    `).join("");
+  }
+
+  function updateSortButtons() {
+    sortButtons.forEach((button) => {
+      const active = button.dataset.sort === sortState.key;
+      button.classList.toggle("is-active", active);
+      button.textContent = active
+        ? `${titleCase(button.dataset.sort)} ${sortState.direction === "asc" ? "↑" : "↓"}`
+        : titleCase(button.dataset.sort);
+    });
+  }
+
+  function titleCase(value) {
+    return String(value || "")
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  function render(state) {
     latestState = state;
-    latestToolCalls = state.tool_calls || [];
-    renderGraph(state);
-    renderLogs(state.logs || []);
+    latestEvents = (state.logs || []).map(normalizeEvent);
+    renderMetrics(state);
+    renderTable();
+    renderPipeline(state);
+    renderSessionBars();
+    renderMemory(state);
+    renderFeed();
     lastUpdated.textContent = state.generated_at ? formatTime(state.generated_at) : "Waiting";
-    setPollStatus(document.hidden ? "Background" : "Live", "");
+    setPollStatus(document.hidden ? "Background" : "Live", document.hidden ? "paused" : "");
   }
 
   async function loadState() {
@@ -436,13 +504,13 @@
 
     pollInFlight = true;
     try {
-      const response = await fetch(`${stateUrl}?limit=160&tool_limit=80`, { cache: "no-store" });
+      const response = await fetch(`${stateUrl}?limit=200&tool_limit=120`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const state = await response.json();
       lastSuccessAt = Date.now();
-      applyState(state);
+      render(state);
     } catch (error) {
       const staleForMS = lastSuccessAt ? Date.now() - lastSuccessAt : 0;
       setPollStatus("Error", "error");
@@ -453,101 +521,55 @@
     }
   }
 
-  Object.entries(baseNodes).forEach(([id, element]) => {
-    element.addEventListener("click", () => {
-      selectedNode = id;
-      if (latestState) {
-        renderGraph(latestState);
-      }
+  function applyQuickFilter(kind) {
+    if (kind === "errors") {
+      filterStatus.value = "failed";
+    } else if (kind === "tools") {
+      filterType.value = "tool";
+    } else if (kind === "background") {
+      filterScope.value = "background";
+    } else {
+      filterType.value = "all";
+      filterScope.value = "all";
+      filterStatus.value = "all";
+      filterSearch.value = "";
+    }
+    renderTable();
+  }
+
+  [filterType, filterScope, filterStatus].forEach((element) => {
+    element.addEventListener("change", () => {
+      renderTable();
     });
   });
+
+  filterSearch.addEventListener("input", () => {
+    renderTable();
+  });
+
+  sortButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.sort;
+      if (sortState.key === key) {
+        sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
+      } else {
+        sortState.key = key;
+        sortState.direction = key === "time" ? "desc" : "asc";
+      }
+      renderTable();
+    });
+  });
+
+  actionErrors.addEventListener("click", () => applyQuickFilter("errors"));
+  actionTools.addEventListener("click", () => applyQuickFilter("tools"));
+  actionBackground.addEventListener("click", () => applyQuickFilter("background"));
+  actionReset.addEventListener("click", () => applyQuickFilter("reset"));
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       setPollStatus("Background", "paused");
     }
     queuePoll(80);
-  });
-
-  graphFrame.addEventListener("pointerdown", (event) => {
-    if (event.target.closest(".graph-node")) {
-      return;
-    }
-    isPanning = true;
-    panStartX = event.clientX;
-    panStartY = event.clientY;
-    panScrollLeft = graphFrame.scrollLeft;
-    panScrollTop = graphFrame.scrollTop;
-    graphFrame.setPointerCapture(event.pointerId);
-    graphHint.textContent = "Panning";
-  });
-
-  graphFrame.addEventListener("pointermove", (event) => {
-    if (!isPanning) {
-      return;
-    }
-    graphFrame.scrollLeft = panScrollLeft - (event.clientX - panStartX);
-    graphFrame.scrollTop = panScrollTop - (event.clientY - panStartY);
-    updateMinimap();
-  });
-
-  graphFrame.addEventListener("pointerup", (event) => {
-    if (!isPanning) {
-      return;
-    }
-    isPanning = false;
-    graphHint.textContent = "Drag background to pan";
-    graphFrame.releasePointerCapture(event.pointerId);
-  });
-
-  graphFrame.addEventListener("pointercancel", () => {
-    isPanning = false;
-    graphHint.textContent = "Drag background to pan";
-  });
-
-  graphFrame.addEventListener("wheel", (event) => {
-    if (!event.ctrlKey && !event.metaKey) {
-      return;
-    }
-    event.preventDefault();
-    graphScale = clampScale(graphScale + (event.deltaY < 0 ? 0.08 : -0.08));
-    applyScale();
-  }, { passive: false });
-
-  graphFrame.addEventListener("scroll", () => {
-    updateMinimap();
-  });
-
-  zoomOutButton.addEventListener("click", () => {
-    graphScale = clampScale(graphScale - 0.08);
-    applyScale();
-  });
-
-  zoomInButton.addEventListener("click", () => {
-    graphScale = clampScale(graphScale + 0.08);
-    applyScale();
-  });
-
-  zoomFitButton.addEventListener("click", () => {
-    fitGraphToFrame(contentWidth, contentHeight);
-  });
-
-  zoomResetButton.addEventListener("click", () => {
-    graphScale = 1;
-    applyScale();
-  });
-
-  toggleActiveOnlyButton.addEventListener("click", () => {
-    activeOnly = !activeOnly;
-    toggleActiveOnlyButton.textContent = activeOnly ? "Active" : "All";
-    toggleActiveOnlyButton.classList.toggle("is-active", activeOnly);
-    if (latestState) {
-      renderGraph(latestState);
-    }
-  });
-
-  window.addEventListener("resize", () => {
-    updateMinimap();
   });
 
   loadState();
