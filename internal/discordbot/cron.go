@@ -4,70 +4,197 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/robfig/cron/v3"
+
 	"lumen-agent/internal/config"
+	"lumen-agent/internal/tools"
 )
 
-type cronJob struct {
-	Text      string    `json:"text"`
-	DueAt     time.Time `json:"due_at"`
-	CreatedAt time.Time `json:"created_at"`
+const scheduledWakeupSource = "scheduled-wakeup"
+
+type scheduledWakeup struct {
+	info     tools.ScheduledWakeupInfo
+	location *time.Location
+	schedule cron.Schedule
 }
 
-type queuedCronJob struct {
-	Path string
-	Job  cronJob
+type scheduledWakeupManager struct {
+	cfg   config.Config
+	mu    sync.RWMutex
+	items map[string]*scheduledWakeup
 }
 
-func EnqueueCronJob(cfg config.Config, text string, dueAt time.Time) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return fmt.Errorf("cron job text must not be empty")
+func newScheduledWakeupManager(cfg config.Config) *scheduledWakeupManager {
+	return &scheduledWakeupManager{
+		cfg:   cfg,
+		items: map[string]*scheduledWakeup{},
 	}
-	if !cfg.HeartbeatEnabled() {
-		return fmt.Errorf("cron jobs require heartbeat delivery; configure heartbeat.target.channel_id and heartbeat.target.user_id")
-	}
-	if dueAt.IsZero() {
-		return fmt.Errorf("cron job due time must not be zero")
+}
+
+func (m *scheduledWakeupManager) ScheduleHeartbeatWakeup(_ context.Context, options tools.ScheduledWakeupCreateOptions) (tools.ScheduledWakeupInfo, error) {
+	if !m.cfg.HeartbeatEnabled() {
+		return tools.ScheduledWakeupInfo{}, fmt.Errorf("heartbeat wakeups require heartbeat delivery; configure heartbeat.target.channel_id and heartbeat.target.user_id")
 	}
 
-	if err := os.MkdirAll(cfg.CronJobsDir(), 0o755); err != nil {
-		return fmt.Errorf("create cron jobs dir: %w", err)
-	}
-
-	data, err := json.MarshalIndent(cronJob{
-		Text:      text,
-		DueAt:     dueAt.UTC(),
-		CreatedAt: time.Now().UTC(),
-	}, "", "  ")
+	now := time.Now()
+	location, err := loadWakeupLocation(strings.TrimSpace(options.Timezone))
 	if err != nil {
-		return fmt.Errorf("encode cron job: %w", err)
+		return tools.ScheduledWakeupInfo{}, err
 	}
 
-	name, err := cronJobFileName()
-	if err != nil {
-		return err
+	info := tools.ScheduledWakeupInfo{
+		ID:        scheduledWakeupID(),
+		Text:      strings.TrimSpace(options.Text),
+		Timezone:  location.String(),
+		CreatedAt: now.UTC(),
+	}
+	if info.Text == "" {
+		return tools.ScheduledWakeupInfo{}, fmt.Errorf("text must not be empty")
 	}
 
-	path := filepath.Join(cfg.CronJobsDir(), name+".json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("write cron job: %w", err)
+	job := &scheduledWakeup{
+		info:     info,
+		location: location,
 	}
 
-	return nil
+	atValue := strings.TrimSpace(options.At)
+	cronValue := strings.TrimSpace(options.Cron)
+	switch {
+	case atValue == "" && cronValue == "":
+		return tools.ScheduledWakeupInfo{}, fmt.Errorf("either at or cron must be provided")
+	case atValue != "" && cronValue != "":
+		return tools.ScheduledWakeupInfo{}, fmt.Errorf("provide either at or cron, not both")
+	case atValue != "":
+		dueAt, err := parseScheduledWakeAt(atValue, now, location)
+		if err != nil {
+			return tools.ScheduledWakeupInfo{}, err
+		}
+		job.info.At = dueAt.UTC()
+		job.info.NextRunAt = dueAt.UTC()
+	default:
+		schedule, normalizedCron, nextRunAt, err := parseScheduledWakeCron(cronValue, now, location)
+		if err != nil {
+			return tools.ScheduledWakeupInfo{}, err
+		}
+		job.schedule = schedule
+		job.info.Cron = normalizedCron
+		job.info.Recurring = true
+		job.info.NextRunAt = nextRunAt.UTC()
+	}
+
+	m.mu.Lock()
+	m.items[job.info.ID] = job
+	m.mu.Unlock()
+
+	return cloneScheduledWakeupInfo(job.info), nil
 }
 
-func ParseCronAt(value string, now time.Time, location *time.Location) (time.Time, error) {
+func (m *scheduledWakeupManager) ListScheduledWakeups(_ context.Context) ([]tools.ScheduledWakeupInfo, error) {
+	m.mu.RLock()
+	items := make([]tools.ScheduledWakeupInfo, 0, len(m.items))
+	for _, item := range m.items {
+		items = append(items, cloneScheduledWakeupInfo(item.info))
+	}
+	m.mu.RUnlock()
+
+	slices.SortFunc(items, func(a, b tools.ScheduledWakeupInfo) int {
+		switch {
+		case a.NextRunAt.Before(b.NextRunAt):
+			return -1
+		case a.NextRunAt.After(b.NextRunAt):
+			return 1
+		default:
+			return strings.Compare(a.ID, b.ID)
+		}
+	})
+	return items, nil
+}
+
+func (m *scheduledWakeupManager) CancelScheduledWakeup(_ context.Context, id string) (tools.ScheduledWakeupInfo, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return tools.ScheduledWakeupInfo{}, fmt.Errorf("id must not be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	item, ok := m.items[id]
+	if !ok {
+		return tools.ScheduledWakeupInfo{}, fmt.Errorf("scheduled wakeup %q was not found", id)
+	}
+	delete(m.items, id)
+	return cloneScheduledWakeupInfo(item.info), nil
+}
+
+func (m *scheduledWakeupManager) dueWakeups(now time.Time) []tools.ScheduledWakeupInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	due := make([]tools.ScheduledWakeupInfo, 0)
+	for _, item := range m.items {
+		if item.info.NextRunAt.IsZero() || item.info.NextRunAt.After(now.UTC()) {
+			continue
+		}
+		due = append(due, cloneScheduledWakeupInfo(item.info))
+	}
+
+	slices.SortFunc(due, func(a, b tools.ScheduledWakeupInfo) int {
+		switch {
+		case a.NextRunAt.Before(b.NextRunAt):
+			return -1
+		case a.NextRunAt.After(b.NextRunAt):
+			return 1
+		default:
+			return strings.Compare(a.ID, b.ID)
+		}
+	})
+	return due
+}
+
+func (m *scheduledWakeupManager) acknowledgeDelivered(ids []string, deliveredAt time.Time) {
+	if len(ids) == 0 {
+		return
+	}
+	deliveredAt = deliveredAt.UTC()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, id := range ids {
+		item, ok := m.items[id]
+		if !ok {
+			continue
+		}
+		item.info.LastRunAt = item.info.NextRunAt.UTC()
+		if item.schedule == nil {
+			delete(m.items, id)
+			continue
+		}
+
+		base := item.info.NextRunAt
+		if deliveredAt.After(base) {
+			base = deliveredAt
+		}
+		nextRun := item.schedule.Next(base.In(item.location))
+		if nextRun.IsZero() {
+			delete(m.items, id)
+			continue
+		}
+		item.info.NextRunAt = nextRun.UTC()
+	}
+}
+
+func parseScheduledWakeAt(value string, now time.Time, location *time.Location) (time.Time, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return time.Time{}, fmt.Errorf("cron --at must not be empty")
+		return time.Time{}, fmt.Errorf("at must not be empty")
 	}
 	if location == nil {
 		location = time.Local
@@ -81,7 +208,7 @@ func ParseCronAt(value string, now time.Time, location *time.Location) (time.Tim
 	for _, layout := range layoutsWithZone {
 		if parsed, err := time.Parse(layout, trimmed); err == nil {
 			if !parsed.After(now) {
-				return time.Time{}, fmt.Errorf("cron --at must be in the future")
+				return time.Time{}, fmt.Errorf("at must be in the future")
 			}
 			return parsed.UTC(), nil
 		}
@@ -96,17 +223,62 @@ func ParseCronAt(value string, now time.Time, location *time.Location) (time.Tim
 	for _, layout := range localLayouts {
 		if parsed, err := time.ParseInLocation(layout, trimmed, location); err == nil {
 			if !parsed.After(now.In(location)) {
-				return time.Time{}, fmt.Errorf("cron --at must be in the future")
+				return time.Time{}, fmt.Errorf("at must be in the future")
 			}
 			return parsed.UTC(), nil
 		}
 	}
-
-	return time.Time{}, fmt.Errorf("unsupported cron --at time format")
+	return time.Time{}, fmt.Errorf("unsupported time format")
 }
 
-func (s *Service) runCronLoop(ctx context.Context) {
-	ticker := time.NewTicker(s.cfg.HeartbeatEventPollInterval())
+func parseScheduledWakeCron(value string, now time.Time, location *time.Location) (cron.Schedule, string, time.Time, error) {
+	trimmed := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if trimmed == "" {
+		return nil, "", time.Time{}, fmt.Errorf("cron must not be empty")
+	}
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(trimmed)
+	if err != nil {
+		return nil, "", time.Time{}, fmt.Errorf("parse cron: %w", err)
+	}
+
+	base := now.In(location)
+	nextRunAt := schedule.Next(base)
+	if nextRunAt.IsZero() {
+		return nil, "", time.Time{}, fmt.Errorf("cron did not produce a future run time")
+	}
+	return schedule, trimmed, nextRunAt, nil
+}
+
+func loadWakeupLocation(name string) (*time.Location, error) {
+	if name == "" {
+		return time.Local, nil
+	}
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("load timezone: %w", err)
+	}
+	return location, nil
+}
+
+func cloneScheduledWakeupInfo(info tools.ScheduledWakeupInfo) tools.ScheduledWakeupInfo {
+	return info
+}
+
+func scheduledWakeupID() string {
+	var suffix [4]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return fmt.Sprintf("wake-%d", time.Now().UTC().UnixNano())
+	}
+	return fmt.Sprintf("wake-%s-%s", time.Now().UTC().Format("20060102-150405"), hex.EncodeToString(suffix[:]))
+}
+
+func (s *Service) runScheduledWakeupLoop(ctx context.Context) {
+	if s.scheduledWakeups == nil || !s.cfg.HeartbeatEnabled() {
+		return
+	}
+
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -114,99 +286,28 @@ func (s *Service) runCronLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			jobs, err := consumeDueCronJobs(s.cfg.CronJobsDir(), time.Now().UTC())
-			if err != nil {
-				s.audit.Write("error", "", map[string]any{"op": "load_due_cron_jobs", "error": err.Error()})
+			due := s.scheduledWakeups.dueWakeups(time.Now())
+			if len(due) == 0 {
 				continue
 			}
-			if len(jobs) == 0 {
+
+			events := make([]heartbeatSystemEvent, 0, len(due))
+			deliveredIDs := make([]string, 0, len(due))
+			for _, item := range due {
+				events = append(events, heartbeatSystemEvent{
+					Text:      item.Text,
+					Mode:      heartbeatModeNow,
+					Source:    scheduledWakeupSource,
+					DueAt:     item.NextRunAt,
+					CreatedAt: item.CreatedAt,
+				})
+				deliveredIDs = append(deliveredIDs, item.ID)
+			}
+
+			if !s.enqueueHeartbeat(events, true) {
 				continue
 			}
-			if !s.enqueueHeartbeat(cronJobsToHeartbeatEvents(jobs), true) {
-				continue
-			}
-			if err := acknowledgeCronJobs(jobs); err != nil {
-				s.audit.Write("error", "", map[string]any{"op": "ack_due_cron_jobs", "error": err.Error()})
-			}
+			s.scheduledWakeups.acknowledgeDelivered(deliveredIDs, time.Now())
 		}
 	}
-}
-
-func consumeDueCronJobs(dir string, now time.Time) ([]queuedCronJob, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		names = append(names, entry.Name())
-	}
-	sort.Strings(names)
-
-	jobs := make([]queuedCronJob, 0, len(names))
-	for _, name := range names {
-		path := filepath.Join(dir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		var job cronJob
-		if err := json.Unmarshal(data, &job); err != nil {
-			_ = os.Remove(path)
-			continue
-		}
-		if strings.TrimSpace(job.Text) == "" || job.DueAt.IsZero() {
-			_ = os.Remove(path)
-			continue
-		}
-		if job.DueAt.After(now) {
-			continue
-		}
-		jobs = append(jobs, queuedCronJob{Path: path, Job: job})
-	}
-
-	return jobs, nil
-}
-
-func cronJobsToHeartbeatEvents(jobs []queuedCronJob) []heartbeatSystemEvent {
-	if len(jobs) == 0 {
-		return nil
-	}
-
-	events := make([]heartbeatSystemEvent, 0, len(jobs))
-	for _, job := range jobs {
-		events = append(events, heartbeatSystemEvent{
-			Text:      job.Job.Text,
-			Mode:      heartbeatModeNow,
-			Source:    "cron",
-			DueAt:     job.Job.DueAt,
-			CreatedAt: job.Job.CreatedAt,
-		})
-	}
-	return events
-}
-
-func acknowledgeCronJobs(jobs []queuedCronJob) error {
-	for _, job := range jobs {
-		if err := os.Remove(job.Path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
-}
-
-func cronJobFileName() (string, error) {
-	var suffix [4]byte
-	if _, err := rand.Read(suffix[:]); err != nil {
-		return "", fmt.Errorf("generate cron job id: %w", err)
-	}
-	return fmt.Sprintf("cron-job-%s-%s", time.Now().UTC().Format("20060102-150405.000000000"), hex.EncodeToString(suffix[:])), nil
 }

@@ -317,6 +317,8 @@ tools:
     - get_background_task_logs
     - cancel_background_task
     - schedule_heartbeat_wakeup
+    - list_scheduled_wakeups
+    - cancel_scheduled_wakeup
     - search_web
     - search_news
 ```
@@ -327,7 +329,7 @@ Why these matter:
 - `exec_command` gives shell access
 - `compact_context` lets the model clean up its own working set
 - background task tools let it work without clogging chat
-- wakeup scheduling gives you precise follow-ups
+- scheduled wakeups give you precise follow-ups, including recurring cron wakeups managed by the running app
 - web and news make live research possible
 
 ### 8. Set up uploads properly
@@ -518,6 +520,8 @@ tools:
     - get_background_task_logs
     - cancel_background_task
     - schedule_heartbeat_wakeup
+    - list_scheduled_wakeups
+    - cancel_scheduled_wakeup
     - search_web
     - search_news
 

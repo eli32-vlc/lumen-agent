@@ -272,6 +272,8 @@ func defaultConfig() Config {
 				"get_background_task_logs",
 				"cancel_background_task",
 				"schedule_heartbeat_wakeup",
+				"list_scheduled_wakeups",
+				"cancel_scheduled_wakeup",
 				"list_sandbox_containers",
 				"inspect_sandbox_container",
 				"create_sandbox_container",
@@ -1055,10 +1057,6 @@ func (c Config) HeartbeatModel() string {
 
 func (c Config) HeartbeatEventsDir() string {
 	return filepath.Join(c.App.SessionDir, "heartbeat-events")
-}
-
-func (c Config) CronJobsDir() string {
-	return filepath.Join(c.App.SessionDir, "cron-jobs")
 }
 
 func (c Config) HeartbeatStatePath() string {

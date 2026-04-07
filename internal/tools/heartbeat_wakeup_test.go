@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,41 +10,53 @@ import (
 	"lumen-agent/internal/config"
 )
 
-func TestParseHeartbeatWakeAtAcceptsLocalTime(t *testing.T) {
-	now := time.Date(2026, 3, 27, 8, 0, 0, 0, time.UTC)
-	parsed, err := parseHeartbeatWakeAt("2026-03-27 18:30", now, time.UTC)
-	if err != nil {
-		t.Fatalf("parseHeartbeatWakeAt returned error: %v", err)
-	}
-	if want := time.Date(2026, 3, 27, 18, 30, 0, 0, time.UTC); !parsed.Equal(want) {
-		t.Fatalf("expected %v, got %v", want, parsed)
-	}
+type scheduledWakeupManagerStub struct {
+	scheduled []ScheduledWakeupInfo
+	canceled  []string
+	lastInput ScheduledWakeupCreateOptions
 }
 
-func TestHandleScheduleHeartbeatWakeupWritesJobFile(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Config{
-		App: config.AppConfig{
-			SessionDir: root,
-		},
-		Heartbeat: config.HeartbeatConfig{
-			Every: "30m",
-			Target: config.HeartbeatTargetConfig{
-				ChannelID: "channel-1",
-				UserID:    "user-1",
-			},
-		},
+func (s *scheduledWakeupManagerStub) ScheduleHeartbeatWakeup(_ context.Context, input ScheduledWakeupCreateOptions) (ScheduledWakeupInfo, error) {
+	s.lastInput = input
+	info := ScheduledWakeupInfo{
+		ID:        "wake-1",
+		Text:      input.Text,
+		Cron:      input.Cron,
+		Timezone:  input.Timezone,
+		Recurring: strings.TrimSpace(input.Cron) != "",
+		CreatedAt: time.Now().UTC(),
+		NextRunAt: time.Now().Add(time.Hour).UTC(),
 	}
+	if strings.TrimSpace(input.At) != "" {
+		info.At = info.NextRunAt
+	}
+	s.scheduled = append(s.scheduled, info)
+	return info, nil
+}
 
-	registry, err := NewRegistry(cfg)
+func (s *scheduledWakeupManagerStub) ListScheduledWakeups(_ context.Context) ([]ScheduledWakeupInfo, error) {
+	return append([]ScheduledWakeupInfo(nil), s.scheduled...), nil
+}
+
+func (s *scheduledWakeupManagerStub) CancelScheduledWakeup(_ context.Context, id string) (ScheduledWakeupInfo, error) {
+	s.canceled = append(s.canceled, id)
+	return ScheduledWakeupInfo{ID: id}, nil
+}
+
+func TestHandleScheduleHeartbeatWakeupUsesManagerForOneShot(t *testing.T) {
+	registry, err := NewRegistry(config.Config{})
 	if err != nil {
 		t.Fatalf("NewRegistry returned error: %v", err)
 	}
 	defer registry.Close()
 
+	manager := &scheduledWakeupManagerStub{}
+	registry.SetScheduledWakeupManager(manager)
+
 	payload, err := json.Marshal(map[string]any{
-		"text": "Morning check-in",
-		"at":   time.Now().Add(2 * time.Hour).Format(time.RFC3339),
+		"text":     "Morning check-in",
+		"at":       "2026-03-27T10:00:00Z",
+		"timezone": "Australia/Brisbane",
 	})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -59,12 +69,73 @@ func TestHandleScheduleHeartbeatWakeupWritesJobFile(t *testing.T) {
 	if !strings.Contains(result, "Morning check-in") {
 		t.Fatalf("expected result to include scheduled text, got %q", result)
 	}
-
-	entries, err := os.ReadDir(filepath.Join(root, "cron-jobs"))
-	if err != nil {
-		t.Fatalf("read cron jobs dir: %v", err)
+	if manager.lastInput.At != "2026-03-27T10:00:00Z" {
+		t.Fatalf("expected manager to receive at input, got %#v", manager.lastInput)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("expected one cron job, got %d", len(entries))
+}
+
+func TestHandleScheduleHeartbeatWakeupUsesManagerForCron(t *testing.T) {
+	registry, err := NewRegistry(config.Config{})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	defer registry.Close()
+
+	manager := &scheduledWakeupManagerStub{}
+	registry.SetScheduledWakeupManager(manager)
+
+	payload, err := json.Marshal(map[string]any{
+		"text": "Weekday standup",
+		"cron": "0 9 * * 1-5",
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	result, err := registry.handleScheduleHeartbeatWakeup(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("handleScheduleHeartbeatWakeup returned error: %v", err)
+	}
+	if !strings.Contains(result, "0 9 * * 1-5") {
+		t.Fatalf("expected result to include cron expression, got %q", result)
+	}
+	if manager.lastInput.Cron != "0 9 * * 1-5" {
+		t.Fatalf("expected manager to receive cron input, got %#v", manager.lastInput)
+	}
+}
+
+func TestHandleListAndCancelScheduledWakeups(t *testing.T) {
+	registry, err := NewRegistry(config.Config{})
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+	defer registry.Close()
+
+	manager := &scheduledWakeupManagerStub{
+		scheduled: []ScheduledWakeupInfo{{ID: "wake-1", Text: "Ping"}},
+	}
+	registry.SetScheduledWakeupManager(manager)
+
+	listResult, err := registry.handleListScheduledWakeups(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("handleListScheduledWakeups returned error: %v", err)
+	}
+	if !strings.Contains(listResult, "wake-1") {
+		t.Fatalf("expected list result to contain wakeup id, got %q", listResult)
+	}
+
+	payload, err := json.Marshal(map[string]any{"id": "wake-1"})
+	if err != nil {
+		t.Fatalf("marshal cancel payload: %v", err)
+	}
+	cancelResult, err := registry.handleCancelScheduledWakeup(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("handleCancelScheduledWakeup returned error: %v", err)
+	}
+	if !strings.Contains(cancelResult, "wake-1") {
+		t.Fatalf("expected cancel result to contain wakeup id, got %q", cancelResult)
+	}
+	if len(manager.canceled) != 1 || manager.canceled[0] != "wake-1" {
+		t.Fatalf("expected wake-1 to be canceled, got %#v", manager.canceled)
 	}
 }

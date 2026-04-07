@@ -378,7 +378,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Heartbeat event poll interval: " + durationOrDisabled(r.cfg.Heartbeat.EventPollInterval),
 		"Heartbeat active hours: " + promptHeartbeatActiveHoursSummary(r.cfg),
 		"Heartbeat target: " + promptHeartbeatTargetSummary(r.cfg),
-		"Precise wakeups dir: " + fallbackPromptValue(r.cfg.CronJobsDir(), "unset"),
+		"Precise wakeups: app-managed scheduler via schedule_heartbeat_wakeup",
 		"Event webhook: " + promptEventWebhookSummary(r.cfg),
 		"Sandboxing: " + promptSandboxSummary(r.cfg),
 		"Enabled tools: " + promptToolSummary(r.registry),

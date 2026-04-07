@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"lumen-agent/internal/agent"
 	"lumen-agent/internal/auditlog"
@@ -40,8 +39,6 @@ func run(args []string) error {
 	switch command {
 	case "serve":
 		return runServe(args)
-	case "cron":
-		return runCron(args)
 	case "system-event":
 		return runSystemEvent(args)
 	case "help", "-h", "--help":
@@ -188,37 +185,10 @@ func runSystemEvent(args []string) error {
 	return nil
 }
 
-func runCron(args []string) error {
-	flags := flag.NewFlagSet("cron", flag.ContinueOnError)
-	flags.SetOutput(os.Stderr)
-	configPath := flags.String("config", "config/lumen.yaml", "Path to the Lumen Agent YAML config")
-	text := flags.String("text", "", "One-shot cron job text to deliver when due")
-	at := flags.String("at", "", "Run once at a future time. Accepts RFC3339 or local time like 2026-03-27 18:30")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	dueAt, err := discordbot.ParseCronAt(*at, time.Now(), time.Local)
-	if err != nil {
-		return fmt.Errorf("parse cron time: %w", err)
-	}
-
-	if err := discordbot.EnqueueCronJob(cfg, *text, dueAt); err != nil {
-		return fmt.Errorf("queue cron job: %w", err)
-	}
-
-	return nil
-}
-
 func printUsage() {
 	fmt.Fprint(os.Stdout, usageText())
 }
 
 func usageText() string {
-	return "Lumen Agent\n\nUsage:\n  lumen-agent [serve] [-config path] [-workspace-dir path]\n  lumen-agent system-event -text \"Check urgent follow-ups\" [-mode now|next-heartbeat] [-config path]\n  lumen-agent cron -text \"Remind me to stretch\" -at \"2026-03-27 18:30\" [-config path]\n  lumen-agent help\n\nEnvironment:\n  LUMEN_WORKSPACE_DIR   Override the workspace directory at runtime\n\nCommands:\n  serve         Run the Discord bot service (default)\n  system-event  Queue a heartbeat system event for the running service\n  cron          Queue a one-shot cron job that runs once at the given time\n  help          Show this help text\n"
+	return "Lumen Agent\n\nUsage:\n  lumen-agent [serve] [-config path] [-workspace-dir path]\n  lumen-agent system-event -text \"Check urgent follow-ups\" [-mode now|next-heartbeat] [-config path]\n  lumen-agent help\n\nEnvironment:\n  LUMEN_WORKSPACE_DIR   Override the workspace directory at runtime\n\nCommands:\n  serve         Run the Discord bot service (default)\n  system-event  Queue a heartbeat system event for the running service\n  help          Show this help text\n"
 }

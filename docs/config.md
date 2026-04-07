@@ -55,7 +55,7 @@ Key fields:
   The root path tools operate inside unless a tool explicitly works elsewhere.
 
 - `session_dir`
-  Lumen’s runtime state directory. This is where session JSON, heartbeat events, cron jobs, logs, uploads, and other state live.
+  Lumen’s runtime state directory. This is where session JSON, heartbeat events, logs, uploads, and other runtime state live.
 
 - `memory_dir`
   Durable memory root for private shard files and curated memory.
@@ -401,6 +401,8 @@ Prioritize:
 - active hours
 - target routing
 - precise wakeups via `schedule_heartbeat_wakeup`
+- scheduled wakeup inspection via `list_scheduled_wakeups`
+- scheduled wakeup cancellation via `cancel_scheduled_wakeup`
 
 ## Important behavior combinations
 

@@ -62,13 +62,14 @@ type Service struct {
 	sandboxes    tools.SandboxManager
 	allowedGuild map[string]struct{}
 
-	mu          sync.RWMutex
-	runContext  context.Context
-	application string
-	sessions    map[string]*sessionState
-	tasks       map[string]*backgroundTask
-	stats       runtimeStats
-	heartbeatMu sync.Mutex
+	mu               sync.RWMutex
+	runContext       context.Context
+	application      string
+	sessions         map[string]*sessionState
+	tasks            map[string]*backgroundTask
+	stats            runtimeStats
+	heartbeatMu      sync.Mutex
+	scheduledWakeups *scheduledWakeupManager
 }
 
 type runtimeStats struct {
@@ -154,20 +155,22 @@ func New(cfg config.Config, runner *agent.Runner, audit *auditlog.Logger, sandbo
 		discordgo.IntentsMessageContent
 
 	service := &Service{
-		cfg:          cfg,
-		runner:       runner,
-		discord:      session,
-		audit:        audit,
-		sandboxes:    sandboxes,
-		allowedGuild: make(map[string]struct{}, len(cfg.Discord.AllowedGuildIDs)),
-		sessions:     make(map[string]*sessionState),
-		tasks:        make(map[string]*backgroundTask),
+		cfg:              cfg,
+		runner:           runner,
+		discord:          session,
+		audit:            audit,
+		sandboxes:        sandboxes,
+		allowedGuild:     make(map[string]struct{}, len(cfg.Discord.AllowedGuildIDs)),
+		sessions:         make(map[string]*sessionState),
+		tasks:            make(map[string]*backgroundTask),
+		scheduledWakeups: newScheduledWakeupManager(cfg),
 	}
 
 	for _, guildID := range cfg.Discord.AllowedGuildIDs {
 		service.allowedGuild[guildID] = struct{}{}
 	}
 	runner.SetBackgroundTaskManager(service)
+	runner.SetScheduledWakeupManager(service)
 
 	session.AddHandler(service.handleInteractionCreate)
 	session.AddHandler(service.handleMessageCreate)
@@ -213,11 +216,8 @@ func (s *Service) Run(ctx context.Context) error {
 		if err := os.MkdirAll(s.cfg.HeartbeatEventsDir(), 0o755); err != nil {
 			return fmt.Errorf("create heartbeat events dir: %w", err)
 		}
-		if err := os.MkdirAll(s.cfg.CronJobsDir(), 0o755); err != nil {
-			return fmt.Errorf("create cron jobs dir: %w", err)
-		}
 		go s.runHeartbeatLoop(ctx)
-		go s.runCronLoop(ctx)
+		go s.runScheduledWakeupLoop(ctx)
 	}
 
 	<-ctx.Done()

@@ -631,7 +631,7 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"Heartbeat event poll interval: 7s",
 		"Heartbeat active hours: 08:00-22:00 Australia/Brisbane",
 		"Heartbeat target: guild=guild-1, channel=channel-1, user=user-1",
-		"Precise wakeups dir: " + filepath.Join(sessionDir, "cron-jobs"),
+		"Precise wakeups: app-managed scheduler via schedule_heartbeat_wakeup",
 		"Event webhook: enabled (/event)",
 		"Sandboxing: enabled, provider=nspawn, release=stable, auto_cleanup=enabled, sudo",
 		"Enabled MCP servers: browser",

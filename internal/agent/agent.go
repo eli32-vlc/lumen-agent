@@ -86,6 +86,13 @@ func (r *Runner) SetSandboxManager(manager tools.SandboxManager) {
 	r.registry.SetSandboxManager(manager)
 }
 
+func (r *Runner) SetScheduledWakeupManager(manager tools.ScheduledWakeupManager) {
+	if r == nil || r.registry == nil {
+		return
+	}
+	r.registry.SetScheduledWakeupManager(manager)
+}
+
 func (r *Runner) SnapshotSkills() []skills.Summary {
 	if r.skills == nil {
 		return nil

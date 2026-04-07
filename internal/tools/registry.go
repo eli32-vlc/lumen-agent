@@ -22,18 +22,19 @@ type Tool struct {
 }
 
 type Registry struct {
-	root            string
-	cfg             config.Config
-	tools           map[string]Tool
-	names           []string
-	close           []func() error
-	discordAPIBase  string
-	discordClient   *http.Client
-	gifAPIBase      string
-	gifClient       *http.Client
-	backgroundTasks BackgroundTaskManager
-	sandboxes       SandboxManager
-	locks           *resourceLockManager
+	root             string
+	cfg              config.Config
+	tools            map[string]Tool
+	names            []string
+	close            []func() error
+	discordAPIBase   string
+	discordClient    *http.Client
+	gifAPIBase       string
+	gifClient        *http.Client
+	backgroundTasks  BackgroundTaskManager
+	scheduledWakeups ScheduledWakeupManager
+	sandboxes        SandboxManager
+	locks            *resourceLockManager
 }
 
 func NewRegistry(cfg config.Config) (*Registry, error) {
