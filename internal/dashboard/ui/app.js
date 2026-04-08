@@ -27,6 +27,7 @@
   let pollInFlight = false;
   let lastSuccessAt = 0;
   let sortState = { key: "time", direction: "desc" };
+  const runtimeConfigOpenSections = new Set();
 
   function escapeHtml(value) {
     return String(value)
@@ -458,8 +459,11 @@
     }
 
     runtimeConfig.innerHTML = sections.map((section) => `
-      <section class="config-section">
-        <div class="config-section-title">${escapeHtml(section.title || "Section")}</div>
+      <details class="config-section" data-section-title="${escapeHtml(section.title || "Section")}" ${runtimeConfigOpenSections.has(section.title || "Section") ? "open" : ""}>
+        <summary class="config-section-title">
+          <span>${escapeHtml(section.title || "Section")}</span>
+          <span class="config-section-meta">${escapeHtml(String(Array.isArray(section.items) ? section.items.length : 0))} items</span>
+        </summary>
         <div class="kv-list">
           ${(Array.isArray(section.items) ? section.items : []).map((item) => `
             <div class="kv-row">
@@ -468,8 +472,22 @@
             </div>
           `).join("")}
         </div>
-      </section>
+      </details>
     `).join("");
+
+    runtimeConfig.querySelectorAll(".config-section").forEach((section) => {
+      section.addEventListener("toggle", () => {
+        const title = section.dataset.sectionTitle || "";
+        if (!title) {
+          return;
+        }
+        if (section.open) {
+          runtimeConfigOpenSections.add(title);
+        } else {
+          runtimeConfigOpenSections.delete(title);
+        }
+      });
+    });
   }
 
   function updateSortButtons() {

@@ -309,11 +309,41 @@ select {
 }
 
 .config-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
   color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
+  cursor: pointer;
+}
+
+.config-section-title::-webkit-details-marker {
+  display: none;
+}
+
+.config-section-title::after {
+  content: "+";
+  color: var(--muted-strong);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.config-section[open] .config-section-title {
+  border-bottom: 1px solid var(--border);
+}
+
+.config-section[open] .config-section-title::after {
+  content: "-";
+}
+
+.config-section-meta {
+  color: var(--muted-strong);
+  font-size: 10px;
+  text-transform: none;
 }
 
 .state-row,
@@ -338,12 +368,28 @@ select {
   font-size: 12px;
 }
 
+.kv-row {
+  align-items: flex-start;
+}
+
+.kv-key {
+  flex: 0 0 110px;
+}
+
 .state-value,
 .kv-value,
 .feed-time,
 .bar-meta {
   color: var(--muted);
   font-size: 11px;
+}
+
+.kv-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: right;
 }
 
 .bar-row {
@@ -380,9 +426,7 @@ select {
 .feed-title,
 .feed-time,
 .state-name,
-.state-value,
-.kv-key,
-.kv-value {
+.state-value {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
