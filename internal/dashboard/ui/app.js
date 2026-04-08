@@ -6,10 +6,10 @@
   const tableSummary = document.getElementById("table-summary");
   const tableMeta = document.getElementById("table-meta");
   const tableBody = document.getElementById("events-table-body");
+  const runtimeConfig = document.getElementById("runtime-config");
   const pipelineList = document.getElementById("pipeline-list");
   const sessionBars = document.getElementById("session-bars");
   const memorySummary = document.getElementById("memory-summary");
-  const activityFeed = document.getElementById("activity-feed");
   const lastUpdated = document.getElementById("last-updated");
   const pollStatus = document.getElementById("poll-status");
   const filterType = document.getElementById("filter-type");
@@ -17,10 +17,6 @@
   const filterStatus = document.getElementById("filter-status");
   const filterSearch = document.getElementById("filter-search");
   const sortButtons = Array.from(document.querySelectorAll(".sort-button"));
-  const actionErrors = document.getElementById("action-errors");
-  const actionTools = document.getElementById("action-tools");
-  const actionBackground = document.getElementById("action-background");
-  const actionReset = document.getElementById("action-reset");
 
   const activePollMS = 1000;
   const backgroundPollMS = 2500;
@@ -452,18 +448,27 @@
     `).join("");
   }
 
-  function renderFeed() {
-    const rows = latestEvents.slice(0, 8);
-    if (!rows.length) {
-      activityFeed.innerHTML = '<div class="empty-state">No recent activity</div>';
+  function renderRuntimeConfig(state) {
+    const sections = state.config && Array.isArray(state.config.sections)
+      ? state.config.sections
+      : [];
+    if (!sections.length) {
+      runtimeConfig.innerHTML = '<div class="empty-state">No runtime config available</div>';
       return;
     }
 
-    activityFeed.innerHTML = rows.map((event) => `
-      <div class="feed-row">
-        <div class="feed-title" title="${escapeHtml(`${event.kind} · ${event.detail}`)}">${escapeHtml(`${event.kind} · ${event.detail}`)}</div>
-        <div class="feed-time">${escapeHtml(formatCompactTime(event.time))}</div>
-      </div>
+    runtimeConfig.innerHTML = sections.map((section) => `
+      <section class="config-section">
+        <div class="config-section-title">${escapeHtml(section.title || "Section")}</div>
+        <div class="kv-list">
+          ${(Array.isArray(section.items) ? section.items : []).map((item) => `
+            <div class="kv-row">
+              <div class="kv-key">${escapeHtml(item.key || "Key")}</div>
+              <div class="kv-value" title="${escapeHtml(item.value || "—")}">${escapeHtml(item.value || "—")}</div>
+            </div>
+          `).join("")}
+        </div>
+      </section>
     `).join("");
   }
 
@@ -489,10 +494,10 @@
     latestEvents = (state.logs || []).map(normalizeEvent);
     renderMetrics(state);
     renderTable();
+    renderRuntimeConfig(state);
     renderPipeline(state);
     renderSessionBars();
     renderMemory(state);
-    renderFeed();
     lastUpdated.textContent = state.generated_at ? formatTime(state.generated_at) : "Waiting";
     setPollStatus(document.hidden ? "Background" : "Live", document.hidden ? "paused" : "");
   }
@@ -521,22 +526,6 @@
     }
   }
 
-  function applyQuickFilter(kind) {
-    if (kind === "errors") {
-      filterStatus.value = "failed";
-    } else if (kind === "tools") {
-      filterType.value = "tool";
-    } else if (kind === "background") {
-      filterScope.value = "background";
-    } else {
-      filterType.value = "all";
-      filterScope.value = "all";
-      filterStatus.value = "all";
-      filterSearch.value = "";
-    }
-    renderTable();
-  }
-
   [filterType, filterScope, filterStatus].forEach((element) => {
     element.addEventListener("change", () => {
       renderTable();
@@ -559,11 +548,6 @@
       renderTable();
     });
   });
-
-  actionErrors.addEventListener("click", () => applyQuickFilter("errors"));
-  actionTools.addEventListener("click", () => applyQuickFilter("tools"));
-  actionBackground.addEventListener("click", () => applyQuickFilter("background"));
-  actionReset.addEventListener("click", () => applyQuickFilter("reset"));
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {

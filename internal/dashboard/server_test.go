@@ -197,6 +197,104 @@ func TestBuildMemoryStateSummarizesMemoryConfig(t *testing.T) {
 	}
 }
 
+func TestBuildConfigStateSummarizesHeartbeatAndMCP(t *testing.T) {
+	cfg := config.Config{
+		App: config.AppConfig{
+			WorkspaceRoot: "/workspace/lumen",
+			SessionDir:    "/workspace/lumen/.lumen",
+		},
+		LLM: config.LLMConfig{
+			Model: "gpt-5.4",
+		},
+		Heartbeat: config.HeartbeatConfig{
+			Every:             "30m",
+			Model:             "gpt-heartbeat",
+			LightContext:      true,
+			IsolatedSession:   true,
+			ShowOK:            false,
+			ShowAlerts:        true,
+			UseIndicator:      true,
+			EventPollInterval: "5s",
+			ActiveHours: config.HeartbeatActiveHoursConfig{
+				Timezone: "Australia/Brisbane",
+				Start:    "09:00",
+				End:      "17:00",
+			},
+			Target: config.HeartbeatTargetConfig{
+				ChannelID: "123",
+				UserID:    "456",
+			},
+		},
+		BackgroundTasks: config.BackgroundTasksConfig{
+			DefaultMinRuntime:  "90s",
+			InjectCurrentTime:  true,
+			MaxEventLogEntries: 300,
+			Sandbox: config.BackgroundTaskSandboxConfig{
+				Enabled:     true,
+				Provider:    "nspawn",
+				Force:       false,
+				AutoCleanup: true,
+			},
+		},
+		Dashboard: config.DashboardConfig{
+			Enabled:    true,
+			ListenAddr: "127.0.0.1:8788",
+			Path:       "/dashboard",
+		},
+		EventWebhook: config.EventWebhookConfig{
+			Enabled:     true,
+			ListenAddr:  "127.0.0.1:8787",
+			Path:        "/event",
+			DefaultMode: "next-heartbeat",
+		},
+		MCP: config.MCPConfig{
+			Servers: []config.MCPServerConfig{
+				{
+					Name:      "exa",
+					Enabled:   true,
+					Transport: "http",
+					Endpoint:  "https://mcp.exa.ai/mcp",
+				},
+				{
+					Name:      "local",
+					Enabled:   false,
+					Transport: "stdio",
+					Command:   "npx",
+					Args:      []string{"-y", "exa-mcp-server"},
+				},
+			},
+		},
+	}
+
+	state := buildConfigState(cfg)
+
+	if len(state.Sections) != 5 {
+		t.Fatalf("expected 5 config sections, got %d", len(state.Sections))
+	}
+
+	heartbeat := findConfigSection(state.Sections, "Heartbeat")
+	if got := findConfigItem(heartbeat.Items, "Enabled"); got != "yes" {
+		t.Fatalf("expected heartbeat enabled yes, got %q", got)
+	}
+	if got := findConfigItem(heartbeat.Items, "Context"); got != "light / isolated" {
+		t.Fatalf("expected heartbeat context summary, got %q", got)
+	}
+	if got := findConfigItem(heartbeat.Items, "Active hours"); got != "09:00-17:00 (Australia/Brisbane)" {
+		t.Fatalf("expected active hours summary, got %q", got)
+	}
+	if got := findConfigItem(heartbeat.Items, "Target"); got != "channel + user" {
+		t.Fatalf("expected heartbeat target summary, got %q", got)
+	}
+
+	mcp := findConfigSection(state.Sections, "MCP")
+	if got := findConfigItem(mcp.Items, "Servers"); got != "2 configured / 1 enabled" {
+		t.Fatalf("expected MCP count summary, got %q", got)
+	}
+	if got := findConfigItem(mcp.Items, "exa"); got != "enabled · http · https://mcp.exa.ai/mcp" {
+		t.Fatalf("expected exa endpoint summary, got %q", got)
+	}
+}
+
 func findNode(nodes []nodeState, id string) nodeState {
 	for _, node := range nodes {
 		if node.ID == id {
@@ -213,4 +311,22 @@ func findEdge(edges []edgeState, id string) edgeState {
 		}
 	}
 	return edgeState{}
+}
+
+func findConfigSection(sections []configSectionState, title string) configSectionState {
+	for _, section := range sections {
+		if section.Title == title {
+			return section
+		}
+	}
+	return configSectionState{}
+}
+
+func findConfigItem(items []configItemState, key string) string {
+	for _, item := range items {
+		if item.Key == key {
+			return item.Value
+		}
+	}
+	return ""
 }

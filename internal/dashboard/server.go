@@ -36,6 +36,7 @@ type stateResponse struct {
 	ActivityWindowSeconds int             `json:"activity_window_seconds"`
 	Summary               summaryState    `json:"summary"`
 	Memory                memoryState     `json:"memory"`
+	Config                configState     `json:"config"`
 	Nodes                 []nodeState     `json:"nodes"`
 	Edges                 []edgeState     `json:"edges"`
 	ToolCalls             []toolCallState `json:"tool_calls"`
@@ -64,6 +65,20 @@ type memoryState struct {
 	CompactionTriggerToken int    `json:"compaction_trigger_tokens"`
 	CompactionTargetToken  int    `json:"compaction_target_tokens"`
 	PreserveRecentMessages int    `json:"preserve_recent_messages"`
+}
+
+type configState struct {
+	Sections []configSectionState `json:"sections"`
+}
+
+type configSectionState struct {
+	Title string            `json:"title"`
+	Items []configItemState `json:"items"`
+}
+
+type configItemState struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type nodeState struct {
@@ -231,6 +246,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	state := BuildState(entries, now, s.activityWindow, logLimit, toolLimit)
 	state.Memory = buildMemoryState(s.cfg)
+	state.Config = buildConfigState(s.cfg)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
@@ -396,6 +412,199 @@ func buildMemoryState(cfg config.Config) memoryState {
 	}
 
 	return state
+}
+
+func buildConfigState(cfg config.Config) configState {
+	return configState{
+		Sections: []configSectionState{
+			{
+				Title: "Runtime",
+				Items: []configItemState{
+					{Key: "LLM", Value: fallbackString(cfg.LLM.Model, "—")},
+					{Key: "Workspace", Value: fallbackString(cfg.App.WorkspaceRoot, "—")},
+					{Key: "Session dir", Value: fallbackString(cfg.App.SessionDir, "—")},
+					{Key: "Logs", Value: fallbackString(cfg.LogDir(), "—")},
+				},
+			},
+			{
+				Title: "Heartbeat",
+				Items: []configItemState{
+					{Key: "Enabled", Value: yesNo(cfg.HeartbeatEnabled())},
+					{Key: "Schedule", Value: fallbackString(cfg.Heartbeat.Every, "off")},
+					{Key: "Model", Value: fallbackString(cfg.HeartbeatModel(), "—")},
+					{Key: "Context", Value: heartbeatContextSummary(cfg)},
+					{Key: "Delivery", Value: heartbeatDeliverySummary(cfg)},
+					{Key: "Active hours", Value: heartbeatActiveHoursSummary(cfg)},
+					{Key: "Target", Value: heartbeatTargetSummary(cfg)},
+					{Key: "Poll interval", Value: fallbackString(cfg.Heartbeat.EventPollInterval, "—")},
+				},
+			},
+			{
+				Title: "Background Tasks",
+				Items: []configItemState{
+					{Key: "Min runtime", Value: fallbackString(cfg.BackgroundTasks.DefaultMinRuntime, "default")},
+					{Key: "Inject time", Value: yesNo(cfg.BackgroundTasks.InjectCurrentTime)},
+					{Key: "Event log cap", Value: strconv.Itoa(cfg.BackgroundTaskMaxEventLogEntries())},
+					{Key: "Sandbox", Value: backgroundSandboxSummary(cfg)},
+				},
+			},
+			{
+				Title: "Endpoints",
+				Items: []configItemState{
+					{Key: "Dashboard", Value: endpointSummary(cfg.Dashboard.Enabled, cfg.Dashboard.ListenAddr, cfg.Dashboard.Path)},
+					{Key: "Webhook", Value: webhookSummary(cfg)},
+				},
+			},
+			{
+				Title: "MCP",
+				Items: buildMCPItems(cfg),
+			},
+		},
+	}
+}
+
+func fallbackString(value string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func heartbeatContextSummary(cfg config.Config) string {
+	contextMode := "full"
+	if cfg.Heartbeat.LightContext {
+		contextMode = "light"
+	}
+	sessionMode := "shared"
+	if cfg.Heartbeat.IsolatedSession {
+		sessionMode = "isolated"
+	}
+	return contextMode + " / " + sessionMode
+}
+
+func heartbeatDeliverySummary(cfg config.Config) string {
+	parts := []string{
+		"ok " + onOff(cfg.Heartbeat.ShowOK),
+		"alerts " + onOff(cfg.Heartbeat.ShowAlerts),
+		"indicator " + onOff(cfg.Heartbeat.UseIndicator),
+	}
+	return strings.Join(parts, " · ")
+}
+
+func heartbeatActiveHoursSummary(cfg config.Config) string {
+	start := strings.TrimSpace(cfg.Heartbeat.ActiveHours.Start)
+	end := strings.TrimSpace(cfg.Heartbeat.ActiveHours.End)
+	if start == "" || end == "" {
+		return "always"
+	}
+	timezone := strings.TrimSpace(cfg.Heartbeat.ActiveHours.Timezone)
+	if timezone == "" {
+		timezone = "local"
+	}
+	return start + "-" + end + " (" + timezone + ")"
+}
+
+func heartbeatTargetSummary(cfg config.Config) string {
+	parts := make([]string, 0, 3)
+	if strings.TrimSpace(cfg.Heartbeat.Target.GuildID) != "" {
+		parts = append(parts, "guild")
+	}
+	if strings.TrimSpace(cfg.Heartbeat.Target.ChannelID) != "" {
+		parts = append(parts, "channel")
+	}
+	if strings.TrimSpace(cfg.Heartbeat.Target.UserID) != "" {
+		parts = append(parts, "user")
+	}
+	if len(parts) == 0 {
+		return "unconfigured"
+	}
+	return strings.Join(parts, " + ")
+}
+
+func backgroundSandboxSummary(cfg config.Config) string {
+	sandbox := cfg.BackgroundTasks.Sandbox
+	if !sandbox.Enabled {
+		return "disabled"
+	}
+	parts := []string{
+		fallbackString(sandbox.Provider, "sandbox"),
+		"force " + onOff(sandbox.Force),
+		"cleanup " + onOff(sandbox.AutoCleanup),
+	}
+	return strings.Join(parts, " · ")
+}
+
+func endpointSummary(enabled bool, listenAddr string, path string) string {
+	status := "off"
+	if enabled {
+		status = "on"
+	}
+	listen := fallbackString(listenAddr, "—")
+	endpointPath := fallbackString(path, "/")
+	return status + " · " + listen + endpointPath
+}
+
+func webhookSummary(cfg config.Config) string {
+	summary := endpointSummary(cfg.EventWebhook.Enabled, cfg.EventWebhook.ListenAddr, cfg.EventWebhook.Path)
+	return summary + " · mode " + fallbackString(cfg.EventWebhook.DefaultMode, "now")
+}
+
+func buildMCPItems(cfg config.Config) []configItemState {
+	servers := cfg.MCP.Servers
+	enabledCount := 0
+	items := make([]configItemState, 0, len(servers)+1)
+	for _, server := range servers {
+		if server.Enabled {
+			enabledCount++
+		}
+	}
+	items = append(items, configItemState{
+		Key:   "Servers",
+		Value: fmt.Sprintf("%d configured / %d enabled", len(servers), enabledCount),
+	})
+	if len(servers) == 0 {
+		items = append(items, configItemState{Key: "Status", Value: "none configured"})
+		return items
+	}
+	for _, server := range servers {
+		items = append(items, configItemState{
+			Key:   fallbackString(server.Name, "unnamed"),
+			Value: mcpServerSummary(server),
+		})
+	}
+	return items
+}
+
+func mcpServerSummary(server config.MCPServerConfig) string {
+	status := "disabled"
+	if server.Enabled {
+		status = "enabled"
+	}
+	switch server.Transport {
+	case "http", "streamable_http":
+		return status + " · " + server.Transport + " · " + fallbackString(server.Endpoint, "—")
+	default:
+		command := fallbackString(server.Command, "—")
+		if len(server.Args) > 0 {
+			command += " " + strings.Join(server.Args, " ")
+		}
+		return status + " · stdio · " + command
+	}
+}
+
+func onOff(value bool) string {
+	if value {
+		return "on"
+	}
+	return "off"
 }
 
 func isMemoryShardFile(name string) bool {
