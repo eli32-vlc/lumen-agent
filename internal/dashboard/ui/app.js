@@ -6,10 +6,6 @@
   const tableSummary = document.getElementById("table-summary");
   const tableMeta = document.getElementById("table-meta");
   const tableBody = document.getElementById("events-table-body");
-  const runtimeConfig = document.getElementById("runtime-config");
-  const pipelineList = document.getElementById("pipeline-list");
-  const sessionBars = document.getElementById("session-bars");
-  const memorySummary = document.getElementById("memory-summary");
   const lastUpdated = document.getElementById("last-updated");
   const pollStatus = document.getElementById("poll-status");
   const filterType = document.getElementById("filter-type");
@@ -27,13 +23,15 @@
   let pollInFlight = false;
   let lastSuccessAt = 0;
   let sortState = { key: "time", direction: "desc" };
-  const runtimeConfigOpenSections = new Set();
+  let expandedEventKey = "";
 
   function escapeHtml(value) {
     return String(value)
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
   }
 
   function formatTime(value) {
@@ -77,6 +75,20 @@
       return `${Math.round(value)} ms`;
     }
     return `${(value / 1000).toFixed(2)} s`;
+  }
+
+  function formatJson(value) {
+    if (value === null || value === undefined || value === "") {
+      return "—";
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (_error) {
+      return String(value);
+    }
   }
 
   function formatBytes(value) {
@@ -201,6 +213,7 @@
     const session = String(entry.session_id || "runtime");
 
     return {
+      key: [entry.time || "", kind, session, JSON.stringify(data)].join("::"),
       time: entry.time || "",
       timeLabel: formatTime(entry.time),
       timestamp: Number.isNaN(timestamp) ? 0 : timestamp,
@@ -212,6 +225,7 @@
       status,
       category,
       origin,
+      rawData: data,
       searchText: [
         session,
         kind,
@@ -351,6 +365,10 @@
     const rows = filteredAndSortedEvents();
     updateSortButtons();
 
+    if (expandedEventKey && !rows.some((event) => event.key === expandedEventKey)) {
+      expandedEventKey = "";
+    }
+
     tableSummary.textContent = latestEvents.length
       ? `${rows.length} of ${latestEvents.length} rows visible`
       : "Waiting for runtime data";
@@ -361,133 +379,41 @@
       return;
     }
 
-    tableBody.innerHTML = rows.map((event) => `
-      <tr>
-        <td title="${escapeHtml(event.timeLabel)}">${escapeHtml(event.timeLabel)}</td>
-        <td title="${escapeHtml(event.session)}">${escapeHtml(event.session)}</td>
-        <td title="${escapeHtml(event.kind)}">${escapeHtml(event.kind)}</td>
-        <td title="${escapeHtml(event.detail)}">${escapeHtml(event.detail)}</td>
-        <td>${event.tokens ? escapeHtml(formatNumber(event.tokens)) : "—"}</td>
-        <td>${escapeHtml(formatDuration(event.duration))}</td>
-        <td class="cell-status status-${escapeHtml(event.status)}">${escapeHtml(event.status)}</td>
-      </tr>
-    `).join("");
-  }
+    tableBody.innerHTML = rows.map((event) => {
+      const isExpanded = event.key === expandedEventKey;
+      const detailSections = [
+        ["Kind", event.kind],
+        ["Origin", event.origin],
+        ["Status", event.status],
+        ["Data", formatJson(event.rawData)],
+      ];
 
-  function renderPipeline(state) {
-    const nodes = state.nodes || [];
-    if (!nodes.length) {
-      pipelineList.innerHTML = '<div class="empty-state">No pipeline state</div>';
-      return;
-    }
-
-    pipelineList.innerHTML = nodes.map((node) => `
-      <div class="state-row">
-        <div class="state-name">${escapeHtml(node.id)}</div>
-        <div class="state-value ${node.active ? "status-ok" : "status-info"}">${node.active ? "active" : "idle"}</div>
-      </div>
-    `).join("");
-  }
-
-  function renderSessionBars() {
-    const bySession = new Map();
-
-    latestEvents.forEach((event) => {
-      const current = bySession.get(event.session) || { session: event.session, tokens: 0, events: 0, failures: 0 };
-      current.tokens += event.tokens;
-      current.events += 1;
-      current.failures += event.status === "failed" ? 1 : 0;
-      bySession.set(event.session, current);
-    });
-
-    const rows = Array.from(bySession.values())
-      .sort((left, right) => right.tokens - left.tokens || right.events - left.events)
-      .slice(0, 6);
-
-    if (!rows.length) {
-      sessionBars.innerHTML = '<div class="empty-state">No session activity</div>';
-      return;
-    }
-
-    const maxTokens = Math.max(1, ...rows.map((row) => row.tokens));
-    sessionBars.innerHTML = rows.map((row) => `
-      <div class="bar-row">
-        <div class="bar-row-head">
-          <div class="bar-label">${escapeHtml(row.session)}</div>
-          <div class="bar-meta">${escapeHtml(`${formatNumber(row.tokens)} tok / ${formatNumber(row.events)} ev`)}</div>
-        </div>
-        <div class="bar-track">
-          <div class="bar-fill" style="width:${Math.max(8, (row.tokens / maxTokens) * 100)}%"></div>
-        </div>
-      </div>
-    `).join("");
-  }
-
-  function renderMemory(state) {
-    const memory = state.memory || {};
-    if (!memory.available) {
-      memorySummary.innerHTML = '<div class="empty-state">Memory directory unavailable</div>';
-      return;
-    }
-
-    const items = [
-      ["Load mode", memory.load_mode || "—"],
-      ["Files", formatNumber(memory.file_count || 0)],
-      ["Shards", `${formatNumber(memory.loaded_shards || 0)} / ${formatNumber(memory.shard_count || 0)}`],
-      ["Curated", memory.has_curated_memory ? "yes" : "no"],
-      ["Storage", formatBytes(memory.total_bytes || 0)],
-      ["Compaction", memory.compaction_enabled ? "enabled" : "disabled"],
-      ["Trigger", memory.compaction_trigger_tokens ? `${formatNumber(memory.compaction_trigger_tokens)} tok` : "—"],
-      ["Target", memory.compaction_target_tokens ? `${formatNumber(memory.compaction_target_tokens)} tok` : "—"],
-    ];
-
-    memorySummary.innerHTML = items.map(([key, value]) => `
-      <div class="kv-row">
-        <div class="kv-key">${escapeHtml(key)}</div>
-        <div class="kv-value">${escapeHtml(String(value))}</div>
-      </div>
-    `).join("");
-  }
-
-  function renderRuntimeConfig(state) {
-    const sections = state.config && Array.isArray(state.config.sections)
-      ? state.config.sections
-      : [];
-    if (!sections.length) {
-      runtimeConfig.innerHTML = '<div class="empty-state">No runtime config available</div>';
-      return;
-    }
-
-    runtimeConfig.innerHTML = sections.map((section) => `
-      <details class="config-section" data-section-title="${escapeHtml(section.title || "Section")}" ${runtimeConfigOpenSections.has(section.title || "Section") ? "open" : ""}>
-        <summary class="config-section-title">
-          <span>${escapeHtml(section.title || "Section")}</span>
-          <span class="config-section-meta">${escapeHtml(String(Array.isArray(section.items) ? section.items.length : 0))} items</span>
-        </summary>
-        <div class="kv-list">
-          ${(Array.isArray(section.items) ? section.items : []).map((item) => `
-            <div class="kv-row">
-              <div class="kv-key">${escapeHtml(item.key || "Key")}</div>
-              <div class="kv-value" title="${escapeHtml(item.value || "—")}">${escapeHtml(item.value || "—")}</div>
-            </div>
-          `).join("")}
-        </div>
-      </details>
-    `).join("");
-
-    runtimeConfig.querySelectorAll(".config-section").forEach((section) => {
-      section.addEventListener("toggle", () => {
-        const title = section.dataset.sectionTitle || "";
-        if (!title) {
-          return;
-        }
-        if (section.open) {
-          runtimeConfigOpenSections.add(title);
-        } else {
-          runtimeConfigOpenSections.delete(title);
-        }
-      });
-    });
+      return `
+        <tr class="event-row ${isExpanded ? "is-expanded" : ""}" data-event-key="${escapeHtml(event.key)}" aria-expanded="${isExpanded ? "true" : "false"}">
+          <td title="${escapeHtml(event.timeLabel)}">${escapeHtml(event.timeLabel)}</td>
+          <td title="${escapeHtml(event.session)}">${escapeHtml(event.session)}</td>
+          <td title="${escapeHtml(event.kind)}">${escapeHtml(event.kind)}</td>
+          <td title="${escapeHtml(event.detail)}">${escapeHtml(event.detail)}</td>
+          <td>${event.tokens ? escapeHtml(formatNumber(event.tokens)) : "—"}</td>
+          <td>${escapeHtml(formatDuration(event.duration))}</td>
+          <td class="cell-status status-${escapeHtml(event.status)}">${escapeHtml(event.status)}</td>
+        </tr>
+        ${isExpanded ? `
+          <tr class="event-detail-row">
+            <td colspan="7">
+              <div class="event-detail">
+                ${detailSections.map(([label, value]) => `
+                  <div class="event-detail-block">
+                    <div class="event-detail-label">${escapeHtml(label)}</div>
+                    <div class="event-detail-value">${escapeHtml(String(value))}</div>
+                  </div>
+                `).join("")}
+              </div>
+            </td>
+          </tr>
+        ` : ""}
+      `;
+    }).join("");
   }
 
   function updateSortButtons() {
@@ -512,10 +438,6 @@
     latestEvents = (state.logs || []).map(normalizeEvent);
     renderMetrics(state);
     renderTable();
-    renderRuntimeConfig(state);
-    renderPipeline(state);
-    renderSessionBars();
-    renderMemory(state);
     lastUpdated.textContent = state.generated_at ? formatTime(state.generated_at) : "Waiting";
     setPollStatus(document.hidden ? "Background" : "Live", document.hidden ? "paused" : "");
   }
@@ -551,6 +473,16 @@
   });
 
   filterSearch.addEventListener("input", () => {
+    renderTable();
+  });
+
+  tableBody.addEventListener("click", (event) => {
+    const row = event.target.closest(".event-row");
+    if (!row) {
+      return;
+    }
+    const key = row.dataset.eventKey || "";
+    expandedEventKey = expandedEventKey === key ? "" : key;
     renderTable();
   });
 
