@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/config"
+	"element-orion/internal/tools"
 )
 
 func TestParseScheduledWakeAtAcceptsLocalTime(t *testing.T) {

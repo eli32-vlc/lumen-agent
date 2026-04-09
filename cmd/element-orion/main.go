@@ -10,16 +10,16 @@ import (
 	"strings"
 	"syscall"
 
-	"lumen-agent/internal/agent"
-	"lumen-agent/internal/auditlog"
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/dashboard"
-	"lumen-agent/internal/discordbot"
-	"lumen-agent/internal/eventwebhook"
-	"lumen-agent/internal/httpaux"
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/sandbox"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/agent"
+	"element-orion/internal/auditlog"
+	"element-orion/internal/config"
+	"element-orion/internal/dashboard"
+	"element-orion/internal/discordbot"
+	"element-orion/internal/eventwebhook"
+	"element-orion/internal/httpaux"
+	"element-orion/internal/llm"
+	"element-orion/internal/sandbox"
+	"element-orion/internal/tools"
 )
 
 func main() {
@@ -52,7 +52,7 @@ func run(args []string) error {
 func runServe(args []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	configPath := flags.String("config", "config/lumen.yaml", "Path to the Lumen Agent YAML config")
+	configPath := flags.String("config", "config/element-orion.yaml", "Path to the Element Orion YAML config")
 	workspaceDir := flags.String("workspace-dir", "", "Override the workspace directory available to tools and memory loading")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -65,7 +65,7 @@ func runServe(args []string) error {
 
 	overrideWorkspaceDir := strings.TrimSpace(*workspaceDir)
 	if overrideWorkspaceDir == "" {
-		overrideWorkspaceDir = strings.TrimSpace(os.Getenv("LUMEN_WORKSPACE_DIR"))
+		overrideWorkspaceDir = strings.TrimSpace(os.Getenv("ELEMENT_ORION_WORKSPACE_DIR"))
 	}
 	if err := cfg.OverrideWorkspaceRoot(overrideWorkspaceDir); err != nil {
 		return fmt.Errorf("apply workspace override: %w", err)
@@ -166,7 +166,7 @@ func runServe(args []string) error {
 func runSystemEvent(args []string) error {
 	flags := flag.NewFlagSet("system-event", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	configPath := flags.String("config", "config/lumen.yaml", "Path to the Lumen Agent YAML config")
+	configPath := flags.String("config", "config/element-orion.yaml", "Path to the Element Orion YAML config")
 	text := flags.String("text", "", "System event text to queue for heartbeat")
 	mode := flags.String("mode", "now", "Delivery mode: now or next-heartbeat")
 	if err := flags.Parse(args); err != nil {
@@ -190,5 +190,5 @@ func printUsage() {
 }
 
 func usageText() string {
-	return "Lumen Agent\n\nUsage:\n  lumen-agent [serve] [-config path] [-workspace-dir path]\n  lumen-agent system-event -text \"Check urgent follow-ups\" [-mode now|next-heartbeat] [-config path]\n  lumen-agent help\n\nEnvironment:\n  LUMEN_WORKSPACE_DIR   Override the workspace directory at runtime\n\nCommands:\n  serve         Run the Discord bot service (default)\n  system-event  Queue a heartbeat system event for the running service\n  help          Show this help text\n"
+	return "Element Orion\n\nUsage:\n  element-orion [serve] [-config path] [-workspace-dir path]\n  element-orion system-event -text \"Check urgent follow-ups\" [-mode now|next-heartbeat] [-config path]\n  element-orion help\n\nEnvironment:\n  ELEMENT_ORION_WORKSPACE_DIR   Override the workspace directory at runtime\n\nCommands:\n  serve         Run the Discord bot service (default)\n  system-event  Queue a heartbeat system event for the running service\n  help          Show this help text\n"
 }

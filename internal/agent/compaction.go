@@ -3,8 +3,8 @@ package agent
 import (
 	"strings"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/llm"
+	"element-orion/internal/config"
+	"element-orion/internal/llm"
 )
 
 const (

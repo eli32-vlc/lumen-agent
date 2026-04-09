@@ -222,9 +222,9 @@ func Load(path string) (Config, error) {
 func defaultConfig() Config {
 	return Config{
 		App: AppConfig{
-			Name:                "Lumen Agent",
+			Name:                "Element Orion",
 			WorkspaceRoot:       ".",
-			SessionDir:          ".lumen",
+			SessionDir:          ".element-orion",
 			MemoryDir:           "",
 			LoadAllMemoryShards: false,
 			MaxAgentLoops:       12,
@@ -349,7 +349,7 @@ func defaultConfig() Config {
 			ListenAddr:  "127.0.0.1:8787",
 			Path:        "/event",
 			Secret:      "",
-			SecretEnv:   "LUMEN_EVENT_WEBHOOK_SECRET",
+			SecretEnv:   "ELEMENT_ORION_EVENT_WEBHOOK_SECRET",
 			DefaultMode: "now",
 		},
 		Skills: SkillsConfig{
@@ -392,7 +392,7 @@ func (c *Config) resolvePaths() error {
 	c.App.MemoryDir = memoryDir
 
 	if strings.TrimSpace(c.App.Name) == "" {
-		c.App.Name = "Lumen Agent"
+		c.App.Name = "Element Orion"
 	}
 
 	if c.App.MaxToolCallsPerTurn <= 0 {
@@ -544,7 +544,7 @@ func (c *Config) resolvePaths() error {
 		c.EventWebhook.Path = "/event"
 	}
 	if c.EventWebhook.SecretEnv == "" {
-		c.EventWebhook.SecretEnv = "LUMEN_EVENT_WEBHOOK_SECRET"
+		c.EventWebhook.SecretEnv = "ELEMENT_ORION_EVENT_WEBHOOK_SECRET"
 	}
 	if c.EventWebhook.DefaultMode == "" {
 		c.EventWebhook.DefaultMode = "now"
@@ -1168,8 +1168,8 @@ func (c *Config) OverrideWorkspaceRoot(path string) error {
 	}
 
 	c.App.WorkspaceRoot = resolved
-	if previousWorkspaceRoot != "" && sameCleanPath(previousSessionDir, filepath.Join(previousWorkspaceRoot, ".lumen")) {
-		c.App.SessionDir = filepath.Join(resolved, ".lumen")
+	if previousWorkspaceRoot != "" && sameCleanPath(previousSessionDir, filepath.Join(previousWorkspaceRoot, ".element-orion")) {
+		c.App.SessionDir = filepath.Join(resolved, ".element-orion")
 	}
 	if previousMemoryDir == "" || sameCleanPath(previousMemoryDir, filepath.Join(previousSessionDir, "memory")) {
 		c.App.MemoryDir = filepath.Join(c.App.SessionDir, "memory")

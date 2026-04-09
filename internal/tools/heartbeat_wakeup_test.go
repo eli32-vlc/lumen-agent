@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 type scheduledWakeupManagerStub struct {

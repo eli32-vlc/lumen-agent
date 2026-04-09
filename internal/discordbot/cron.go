@@ -12,8 +12,8 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/config"
+	"element-orion/internal/tools"
 )
 
 const scheduledWakeupSource = "scheduled-wakeup"

@@ -1,10 +1,13 @@
 .DS_Store
 .lumen/
+.element-orion/
 .gocache/
 bin/
 dist/
-lumen-agent
+/lumen-agent
+/element-orion
 config/lumen.yaml
+config/element-orion.yaml
 config/lumenmac.yaml
 config/*.local.yaml
 IDENTITY.md

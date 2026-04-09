@@ -3,8 +3,8 @@ package discordbot
 import (
 	"testing"
 
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/skills"
+	"element-orion/internal/llm"
+	"element-orion/internal/skills"
 )
 
 func TestSessionSnapshotForRunClonesState(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 func TestReminderToolLifecycle(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 func TestHandleWriteFileReturnsPreview(t *testing.T) {

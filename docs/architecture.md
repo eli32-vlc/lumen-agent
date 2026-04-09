@@ -1,11 +1,11 @@
 # Architecture
 
-This document explains how Lumen actually works as a runtime, not just as a list of features.
+This document explains how Element Orion actually works as a runtime, not just as a list of features.
 
 If you want the short version:
 
 - Discord messages enter the dom-agent loop
-- Lumen assembles a large startup prompt from runtime metadata, workspace files, memory, skills, and session history
+- Element Orion assembles a large startup prompt from runtime metadata, workspace files, memory, skills, and session history
 - the model can reply directly or call tools
 - background work runs in a separate worker lane
 - heartbeat and precise wakeups feed system events back into the same runtime
@@ -13,7 +13,7 @@ If you want the short version:
 
 ## The high-level shape
 
-Lumen has one runtime, but several different execution lanes:
+Element Orion has one runtime, but several different execution lanes:
 
 ```text
 Discord user message
@@ -122,7 +122,7 @@ history persistence
 Discord reply
 ```
 
-More concretely, Lumen does this:
+More concretely, Element Orion does this:
 
 1. receives the Discord event
 2. rewrites attachment links to local downloaded paths if that feature is enabled
@@ -137,7 +137,7 @@ More concretely, Lumen does this:
 
 ## Prompt assembly
 
-Lumen does not rely on a tiny static system prompt alone.
+Element Orion does not rely on a tiny static system prompt alone.
 
 It builds a larger prompt context from several sources.
 
@@ -163,7 +163,7 @@ This matters because the model should know the environment it is actually operat
 
 ### Workspace files
 
-Lumen can load files such as:
+Element Orion can load files such as:
 
 - `IDENTITY.md`
 - `USER.md`
@@ -177,25 +177,25 @@ These files act as durable runtime memory and operator intent.
 
 ### Skills
 
-If skills are enabled, Lumen snapshots available `SKILL.md` content into prompt context.
+If skills are enabled, Element Orion snapshots available `SKILL.md` content into prompt context.
 
 This is a powerful behavior lever because it changes not just what tools exist, but how the model is taught to use them.
 
 ### Memory shards
 
-Lumen also loads memory shards from disk.
+Element Orion also loads memory shards from disk.
 
 That gives it a lightweight long-term memory mechanism that survives restarts and session churn.
 
 ## Context and history model
 
-One of the most important distinctions in Lumen is that several different "context" numbers exist at the same time.
+One of the most important distinctions in Element Orion is that several different "context" numbers exist at the same time.
 
 They are not interchangeable.
 
 ### Stored session history
 
-This is the durable chat history Lumen keeps on disk and in the session state.
+This is the durable chat history Element Orion keeps on disk and in the session state.
 
 It can be compacted for storage continuity.
 
@@ -213,7 +213,7 @@ This may be quite large even before user chat history is added.
 
 ### Live model input
 
-This is what the provider actually sees for the current turn after Lumen:
+This is what the provider actually sees for the current turn after Element Orion:
 
 - reserves reply tokens
 - computes input budget
@@ -224,7 +224,7 @@ That is why `/status` needs to show more than just "messages in this chat."
 
 ## Compaction
 
-Lumen uses two related but different compaction ideas.
+Element Orion uses two related but different compaction ideas.
 
 ### Storage compaction
 
@@ -276,7 +276,7 @@ That means:
 When the worker finishes or fails:
 
 - the worker does not directly message the user
-- Lumen creates an internal handoff event
+- Element Orion creates an internal handoff event
 - that handoff is queued into the dom-agent session
 - the dom agent replies normally in its own voice
 
@@ -291,7 +291,7 @@ Because a full worker transcript can be:
 - polluted with low-level tool chatter
 - harmful to the main chat’s working context
 
-Lumen currently merges back the result through a structured handoff, not a raw transcript dump.
+Element Orion currently merges back the result through a structured handoff, not a raw transcript dump.
 
 ## Background task lifecycle
 
@@ -331,7 +331,7 @@ Heartbeat is a proactive system loop.
 
 It is not a normal chat turn.
 
-It exists so Lumen can notice and act on things without waiting for a user message.
+It exists so Element Orion can notice and act on things without waiting for a user message.
 
 Examples:
 
@@ -366,7 +366,7 @@ Internally, they are turned into queued events that the heartbeat/event processi
 
 ## Attachment handling
 
-If incoming attachment download is enabled, Lumen:
+If incoming attachment download is enabled, Element Orion:
 
 1. downloads the uploaded file
 2. stores it locally
@@ -398,7 +398,7 @@ That is useful for:
 
 ## Logs and observability
 
-Lumen is built to be inspectable.
+Element Orion is built to be inspectable.
 
 You can inspect:
 
@@ -445,7 +445,7 @@ Usually one or more of:
 
 ### A worker "finished" but the user saw ugly boilerplate
 
-That was the old behavior Lumen is moving away from.
+That was the old behavior Element Orion is moving away from.
 
 The newer handoff model keeps worker results internal and lets the dom agent respond naturally.
 
@@ -461,7 +461,7 @@ Usually one or more of:
 
 ## Configuration philosophy
 
-Lumen works best when you treat config as behavior design, not just plumbing.
+Element Orion works best when you treat config as behavior design, not just plumbing.
 
 A few fields dramatically change how the agent feels:
 
@@ -477,7 +477,7 @@ If the bot feels wrong, these settings are often a better place to look than imm
 
 ## Release mindset
 
-If you want Lumen to feel solid in production, aim for:
+If you want Element Orion to feel solid in production, aim for:
 
 - safe example config committed
 - real config ignored
@@ -488,4 +488,4 @@ If you want Lumen to feel solid in production, aim for:
 - sandboxing configured only when the host can actually support it
 - `/status` used as your first debugging surface
 
-That is the mindset Lumen is optimized for: companion behavior with operator visibility.
+That is the mindset Element Orion is optimized for: companion behavior with operator visibility.

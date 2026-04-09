@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/auditlog"
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/discordbot"
+	"element-orion/internal/auditlog"
+	"element-orion/internal/config"
+	"element-orion/internal/discordbot"
 )
 
 const (
@@ -181,7 +181,7 @@ func authorized(r *http.Request, secret string) bool {
 		return true
 	}
 
-	provided := strings.TrimSpace(r.Header.Get("X-Lumen-Webhook-Secret"))
+	provided := strings.TrimSpace(r.Header.Get("X-Element-Orion-Webhook-Secret"))
 	if provided == "" {
 		authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 		if strings.HasPrefix(strings.ToLower(authorization), "bearer ") {

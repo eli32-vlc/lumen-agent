@@ -11,16 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/heartbeatstate"
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/skills"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/config"
+	"element-orion/internal/heartbeatstate"
+	"element-orion/internal/llm"
+	"element-orion/internal/skills"
+	"element-orion/internal/tools"
 )
 
 const NoReplyToken = "<NO_REPLY>"
 
-const baseSystemPrompt = `You are Lumen Agent, a companion replying through a Discord bot.
+const baseSystemPrompt = `You are Element Orion, a companion replying through a Discord bot.
 
 You are here to be present, helpful, clear, and real.
 
@@ -340,7 +340,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 
 	localNow := conversation.Now.In(time.Local)
 	lines := []string{
-		"Agent name: " + fallbackPromptValue(r.cfg.App.Name, "Lumen Agent"),
+		"Agent name: " + fallbackPromptValue(r.cfg.App.Name, "Element Orion"),
 		"Model: " + model,
 		"Provider: " + fallbackPromptValue(r.cfg.LLM.APIType, "unknown"),
 		"Provider base URL: " + sanitizePromptURL(r.cfg.LLM.BaseURL),
@@ -846,7 +846,7 @@ func AppendToMemoryShard(memoryRoot string, userMsg string, assistantMsg string,
 		sb.WriteString("\n\n")
 	}
 	if assistantMsg != "" {
-		sb.WriteString("**Lumen:** ")
+		sb.WriteString("**Element Orion:** ")
 		sb.WriteString(assistantMsg)
 		sb.WriteString("\n")
 	}

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/config"
+	"element-orion/internal/tools"
 )
 
 type processState struct {
@@ -341,7 +341,7 @@ func (m *Manager) requirePrivilegeForSandbox(command string) error {
 	if command == "" {
 		command = "sandbox setup"
 	}
-	return fmt.Errorf("%s requires root privileges; run the Lumen service as root, enable background_tasks.sandbox.use_sudo, or disable background_tasks.sandbox", command)
+	return fmt.Errorf("%s requires root privileges; run the Element Orion service as root, enable background_tasks.sandbox.use_sudo, or disable background_tasks.sandbox", command)
 }
 
 func (m *Manager) commandSpec(name string, args ...string) (string, []string) {

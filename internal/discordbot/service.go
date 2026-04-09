@@ -19,13 +19,13 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"lumen-agent/internal/agent"
-	"lumen-agent/internal/auditlog"
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/heartbeatstate"
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/skills"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/agent"
+	"element-orion/internal/auditlog"
+	"element-orion/internal/config"
+	"element-orion/internal/heartbeatstate"
+	"element-orion/internal/llm"
+	"element-orion/internal/skills"
+	"element-orion/internal/tools"
 )
 
 const (
@@ -1313,7 +1313,7 @@ func (s *Service) statusReport(key sessionKey) string {
 	session := s.lookupSession(key)
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
 	worker := s.latestBackgroundTaskForChannel(key.ChannelID)
-	lines := []string{"## 🌙 Lumen Check-In"}
+	lines := []string{"## Element Orion Check-In"}
 
 	if session == nil {
 		estimate := s.runner.EstimateContextUsage(nil, agent.ConversationContext{

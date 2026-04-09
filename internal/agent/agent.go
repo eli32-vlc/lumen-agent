@@ -8,10 +8,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/skills"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/config"
+	"element-orion/internal/llm"
+	"element-orion/internal/skills"
+	"element-orion/internal/tools"
 )
 
 const autoFollowThroughPrompt = "System follow-up: you made workspace changes during this turn. Unless the work is already verified or you are genuinely blocked, continue autonomously. Inspect the saved result, run the smallest relevant verification step you can, update TASKS.md if that would help continuity, and then give the final user-facing reply. Do not ask for confirmation for low-risk verification or obvious next steps."

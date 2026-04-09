@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 func TestParseRSSFeedDocumentSupportsRSS2(t *testing.T) {

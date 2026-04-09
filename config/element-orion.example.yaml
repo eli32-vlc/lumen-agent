@@ -1,8 +1,8 @@
 app:
-  name: Lumen Agent
+  name: Element Orion
   workspace_root: .
-  session_dir: ./.lumen
-  memory_dir: ./.lumen/memory
+  session_dir: ./.element-orion
+  memory_dir: ./.element-orion/memory
   load_all_memory_shards: false
   max_agent_loops: 32
   max_tool_calls_per_turn: 96
@@ -87,7 +87,7 @@ background_tasks:
     release: stable
     architecture: amd64
     mirror: http://deb.debian.org/debian/
-    machines_dir: ./.lumen/sandboxes
+    machines_dir: ./.element-orion/sandboxes
     setup_timeout: 20m
     auto_cleanup: true
 
@@ -112,7 +112,7 @@ discord:
   guild_session_scope: channel
   reply_to_message: false
   download_incoming_attachments: true
-  incoming_attachments_dir: ./.lumen/incoming-attachments
+  incoming_attachments_dir: ./.element-orion/incoming-attachments
 
 gifs:
   enabled: false
@@ -146,7 +146,7 @@ event_webhook:
   listen_addr: 127.0.0.1:8787
   path: /event
   secret: ""
-  secret_env: LUMEN_EVENT_WEBHOOK_SECRET
+  secret_env: ELEMENT_ORION_EVENT_WEBHOOK_SECRET
   default_mode: now
 
 mcp:

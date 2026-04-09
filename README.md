@@ -1,10 +1,10 @@
-# Lumen Agent
+# Element Orion
 
-Lumen Agent is a Go-based Discord runtime for people who do not just want an agent that can *do things*, but an agent that can stay coherent once the work gets messy.
+Element Orion is a Go-based Discord runtime for people who do not just want an agent that can *do things*, but an agent that can stay coherent once the work gets messy.
 
 Plenty of projects already cover the obvious checklist: model calls, tools, Discord replies, files, web access, background jobs. That is not the interesting part anymore.
 
-Lumen exists for the part that usually breaks right after the demo:
+Element Orion exists for the part that usually breaks right after the demo:
 
 - keeping foreground chat separate from worker execution
 - making long-running work inspectable instead of magical
@@ -12,15 +12,15 @@ Lumen exists for the part that usually breaks right after the demo:
 - handling uploads, wakeups, heartbeats, and session continuity like runtime concerns
 - treating context pressure as an operational problem, not just a prompt-writing problem
 
-## Why Lumen exists
+## Why Element Orion exists
 
-If OpenClaw already gives you “agent with tools,” Lumen is the answer to a different question:
+If OpenClaw already gives you “agent with tools,” Element Orion is the answer to a different question:
 
 **What should the runtime look like if you want that agent to be stable, inspectable, and actually livable inside Discord?**
 
 The core bet is that agent quality is shaped as much by runtime architecture as by prompting.
 
-Lumen has a few strong opinions:
+Element Orion has a few strong opinions:
 
 - the user should talk to one visible agent, not to worker boilerplate
 - workers should run in their own lane and hand results back cleanly
@@ -28,11 +28,11 @@ Lumen has a few strong opinions:
 - history should be managed deliberately instead of growing until it rots
 - proactive behavior should be scheduled and inspectable, not spooky
 
-This means Lumen is less about “here are twenty features” and more about **how those pieces are wired together so the system keeps its shape over time**.
+This means Element Orion is less about “here are twenty features” and more about **how those pieces are wired together so the system keeps its shape over time**.
 
 ## What feels different in practice
 
-The best way to think about Lumen is not as a pile of abilities, but as a runtime that enforces boundaries:
+The best way to think about Element Orion is not as a pile of abilities, but as a runtime that enforces boundaries:
 
 - foreground chat stays user-facing
 - background workers stay operational
@@ -44,7 +44,7 @@ That is the part that makes it useful as a companion-style runtime instead of ju
 
 ## Runtime model
 
-Lumen has four main loops:
+Element Orion has four main loops:
 
 1. foreground Discord conversation loop
 2. background worker loop
@@ -57,7 +57,7 @@ Those loops share config, tools, and runtime services, but they do not all behav
 
 The dom agent lives here.
 
-For a normal chat turn, Lumen:
+For a normal chat turn, Element Orion:
 
 1. resolves the channel session
 2. builds the system prompt from runtime metadata and workspace files
@@ -83,7 +83,7 @@ Important behavior:
 - after that, the worker keeps its own private history
 - the worker does not keep sharing live context with the main chat
 - the worker does not directly talk to the user anymore
-- when the worker finishes or fails, Lumen creates an internal handoff event for the dom agent
+- when the worker finishes or fails, Element Orion creates an internal handoff event for the dom agent
 - the dom agent then replies to the user in normal language
 
 This matters because it keeps sub-agents in the worker lane and keeps user-facing messaging owned by the dom agent.
@@ -110,7 +110,7 @@ The key file is:
 
 ### Precise wakeup loop
 
-Lumen also supports one-shot wakeups that are more precise than the heartbeat interval.
+Element Orion also supports one-shot wakeups that are more precise than the heartbeat interval.
 
 These are useful for:
 
@@ -124,9 +124,9 @@ The key file is:
 
 ## Prompt model
 
-The system prompt is a major part of Lumen’s behavior.
+The system prompt is a major part of Element Orion’s behavior.
 
-At startup, Lumen injects:
+At startup, Element Orion injects:
 
 - local time and UTC tracking time
 - runtime metadata
@@ -144,7 +144,7 @@ The key file is:
 
 ## Context model
 
-Lumen treats context as a limited runtime budget.
+Element Orion treats context as a limited runtime budget.
 
 There are three different things to keep straight:
 
@@ -154,7 +154,7 @@ There are three different things to keep straight:
 
 Those are not the same number.
 
-Lumen can:
+Element Orion can:
 
 - compact stored session history for continuity
 - trim history against the input budget for live model calls
@@ -168,7 +168,7 @@ The key files are:
 
 ## Slash commands
 
-Lumen currently ships a few core Discord slash commands:
+Element Orion currently ships a few core Discord slash commands:
 
 - `/new` starts a fresh session
 - `/stop` cancels the active session
@@ -196,13 +196,13 @@ If you want Debian sandboxing later, you will also need:
 - `debootstrap`
 - `systemd-nspawn`
 - `machinectl`
-- optional passwordless `sudo` if you want Lumen to manage sandboxes without running fully as root
+- optional passwordless `sudo` if you want Element Orion to manage sandboxes without running fully as root
 
 ### 2. Clone the repo
 
 ```bash
-git clone https://github.com/eli32-vlc/lumen-agent.git
-cd lumen-agent
+git clone https://github.com/eli32-vlc/element-orion.git
+cd element-orion
 ```
 
 ### 3. Create your real config
@@ -344,12 +344,12 @@ If you want Discord uploads to become usable local files, keep:
 ```yaml
 discord:
   download_incoming_attachments: true
-  incoming_attachments_dir: ./.lumen/incoming-attachments
+  incoming_attachments_dir: ./.element-orion/incoming-attachments
 ```
 
 That means when a user uploads a file:
 
-1. Lumen downloads it
+1. Element Orion downloads it
 2. stores it locally
 3. rewrites the message context to include the local path
 
@@ -357,7 +357,7 @@ This is one of the details that makes real file work much less annoying.
 
 ### 9. Set up heartbeat if you want proactive behavior
 
-Heartbeat is optional, but it is what makes Lumen feel more like a caretaker instead of a purely reactive bot.
+Heartbeat is optional, but it is what makes Element Orion feel more like a caretaker instead of a purely reactive bot.
 
 A simple starter block looks like:
 
@@ -388,7 +388,7 @@ Important behavior:
 
 ### 10. Keep context under control
 
-Lumen works best when compaction is on.
+Element Orion works best when compaction is on.
 
 The example config already gives a decent starter:
 
@@ -423,7 +423,7 @@ background_tasks:
     release: stable
     architecture: amd64
     mirror: http://deb.debian.org/debian/
-    machines_dir: ./.lumen/sandboxes
+    machines_dir: ./.element-orion/sandboxes
     setup_timeout: 20m
     auto_cleanup: true
 ```
@@ -441,14 +441,14 @@ If sandboxing is requested but not configured, background tasks will fail with a
 Once config is ready, start the bot with:
 
 ```bash
-go run ./cmd/lumen-agent serve -config config/lumen.yaml
+go run ./cmd/element-orion serve -config config/lumen.yaml
 ```
 
 If you prefer a built binary:
 
 ```bash
-go build -o lumen-agent ./cmd/lumen-agent
-./lumen-agent serve -config config/lumen.yaml
+go build -o element-orion ./cmd/element-orion
+./element-orion serve -config config/lumen.yaml
 ```
 
 ### 13. First-run checklist in Discord
@@ -478,10 +478,10 @@ If you want to test workers:
 
 ```yaml
 app:
-  name: Lumen Agent
+  name: Element Orion
   workspace_root: .
-  session_dir: ./.lumen
-  memory_dir: ./.lumen/memory
+  session_dir: ./.element-orion
+  memory_dir: ./.element-orion/memory
   load_all_memory_shards: false
   max_agent_loops: 32
   max_tool_calls_per_turn: 96
@@ -507,7 +507,7 @@ discord:
   allow_direct_messages: true
   guild_session_scope: channel
   download_incoming_attachments: true
-  incoming_attachments_dir: ./.lumen/incoming-attachments
+  incoming_attachments_dir: ./.element-orion/incoming-attachments
 
 tools:
   enabled:
@@ -580,7 +580,7 @@ Once the bot is running, the next useful docs are:
 ## Repo layout
 
 ```text
-cmd/lumen-agent/            CLI entrypoint and utility subcommands
+cmd/element-orion/            CLI entrypoint and utility subcommands
 internal/agent/             model loop, prompt assembly, history trimming, compaction
 internal/config/            YAML config loading, defaults, validation, path resolution
 internal/discordbot/        Discord service, sessions, slash commands, uploads, heartbeat
@@ -603,12 +603,12 @@ go test ./...
 Important local state:
 
 - `config/lumen.yaml` is git-ignored
-- `.lumen/` is runtime state
+- `.element-orion/` is runtime state
 - identity and continuity files like `BOOTSTRAP.md`, `IDENTITY.md`, `USER.md`, `SOUL.md`, `HEARTBEAT.md`, `TASKS.md`, and `CODEBASE.md` are ignored by default
 
 ## Positioning
 
-OpenClaw is part of the inspiration, but Lumen is aiming at a different balance:
+OpenClaw is part of the inspiration, but Element Orion is aiming at a different balance:
 
 - more Discord-native companion behavior
 - stronger worker visibility

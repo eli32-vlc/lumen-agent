@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/dashboard"
-	"lumen-agent/internal/eventwebhook"
+	"element-orion/internal/config"
+	"element-orion/internal/dashboard"
+	"element-orion/internal/eventwebhook"
 )
 
 func TestCanShareListenerRequiresMatchingEnabledAddresses(t *testing.T) {
@@ -82,7 +82,7 @@ func testConfig(t *testing.T) config.Config {
 	t.Helper()
 
 	root := t.TempDir()
-	sessionDir := filepath.Join(root, ".lumen")
+	sessionDir := filepath.Join(root, ".element-orion")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session dir: %v", err)
 	}

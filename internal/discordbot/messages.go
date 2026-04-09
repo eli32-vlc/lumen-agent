@@ -1,7 +1,7 @@
 package discordbot
 
 import (
-	"lumen-agent/internal/llm"
+	"element-orion/internal/llm"
 	"strings"
 	"unicode/utf8"
 )

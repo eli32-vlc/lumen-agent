@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 func TestCommandSpecUsesSudoWhenEnabledAndNotRoot(t *testing.T) {

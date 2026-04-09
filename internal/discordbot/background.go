@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/agent"
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/skills"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/agent"
+	"element-orion/internal/llm"
+	"element-orion/internal/skills"
+	"element-orion/internal/tools"
 )
 
 type backgroundTaskStatus string

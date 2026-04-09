@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 type queuedEvent struct {
@@ -102,7 +102,7 @@ func TestHandlerRejectsInvalidMode(t *testing.T) {
 func testConfig(t *testing.T) config.Config {
 	t.Helper()
 
-	sessionDir := filepath.Join(t.TempDir(), ".lumen")
+	sessionDir := filepath.Join(t.TempDir(), ".element-orion")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatalf("create session dir: %v", err)
 	}

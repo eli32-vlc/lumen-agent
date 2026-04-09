@@ -13,7 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 var mcpToolNameSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_]+`)
@@ -42,7 +42,7 @@ func (r *Registry) registerMCPTools(ctx context.Context) error {
 
 func (r *Registry) registerMCPServerTools(ctx context.Context, server config.MCPServerConfig) error {
 	client := mcp.NewClient(&mcp.Implementation{
-		Name:    "lumen-agent",
+		Name:    "element-orion",
 		Version: "1.0.0",
 	}, nil)
 

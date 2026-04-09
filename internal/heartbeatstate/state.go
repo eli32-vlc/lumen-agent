@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 const maxStoredMessageRunes = 280

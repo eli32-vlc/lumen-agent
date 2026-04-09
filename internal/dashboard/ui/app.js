@@ -1,5 +1,5 @@
 (function () {
-  const basePath = window.LUMEN_DASHBOARD_BASE_PATH || "";
+  const basePath = window.ELEMENT_ORION_DASHBOARD_BASE_PATH || "";
   const stateUrl = `${basePath === "/" ? "" : basePath}/api/state`;
 
   const metricsGrid = document.getElementById("metrics-grid");

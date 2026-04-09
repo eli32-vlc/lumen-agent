@@ -1,12 +1,12 @@
 # Background Tasks
 
-Background tasks are Lumen’s worker system.
+Background tasks are Element Orion’s worker system.
 
 They exist for work that is too long, too noisy, or too asynchronous for the foreground chat loop.
 
 ## The mental model
 
-Think of Lumen as having two lanes:
+Think of Element Orion as having two lanes:
 
 - the dom agent lane
 - the worker lane
@@ -18,7 +18,7 @@ That distinction matters a lot.
 
 ## What happens when a worker starts
 
-When the dom agent calls `start_background_task`, Lumen:
+When the dom agent calls `start_background_task`, Element Orion:
 
 1. looks up the current channel session
 2. copies the current session history
@@ -40,12 +40,12 @@ That means the worker does inherit context, but only once at the start.
 
 Not fully.
 
-Lumen now uses a handoff model instead of having the worker talk directly to the user.
+Element Orion now uses a handoff model instead of having the worker talk directly to the user.
 
 When a worker finishes or fails:
 
 - the worker does not send raw runtime boilerplate to the user
-- Lumen creates an internal handoff event for the dom agent
+- Element Orion creates an internal handoff event for the dom agent
 - the dom agent gets that worker result automatically
 - the dom agent then sends the user-facing reply
 
@@ -192,7 +192,7 @@ Without workers, agents tend to:
 - lose detail about what they were doing
 - clutter the main chat with low-value intermediate updates
 
-Lumen’s worker model is meant to avoid that.
+Element Orion’s worker model is meant to avoid that.
 
 ## Sandboxed workers
 

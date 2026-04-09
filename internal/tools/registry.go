@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/llm"
+	"element-orion/internal/config"
+	"element-orion/internal/llm"
 )
 
 type Handler func(context.Context, json.RawMessage) (string, error)

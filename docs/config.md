@@ -10,9 +10,9 @@ cp config/lumen.example.yaml config/lumen.yaml
 
 ## Reading the config as a runtime map
 
-Lumen’s config is not only “settings.” It is the runtime contract the agent is expected to live inside.
+Element Orion’s config is not only “settings.” It is the runtime contract the agent is expected to live inside.
 
-The config tells Lumen:
+The config tells Element Orion:
 
 - how big the context budget is
 - which tools exist
@@ -37,7 +37,7 @@ At minimum, configure:
 Then run:
 
 ```bash
-go run ./cmd/lumen-agent serve -config config/lumen.yaml
+go run ./cmd/element-orion serve -config config/lumen.yaml
 ```
 
 ## Top-level sections
@@ -55,7 +55,7 @@ Key fields:
   The root path tools operate inside unless a tool explicitly works elsewhere.
 
 - `session_dir`
-  Lumen’s runtime state directory. This is where session JSON, heartbeat events, logs, uploads, and other runtime state live.
+  Element Orion’s runtime state directory. This is where session JSON, heartbeat events, logs, uploads, and other runtime state live.
 
 - `memory_dir`
   Durable memory root for private shard files and curated memory.
@@ -81,10 +81,10 @@ These settings control stored-history compaction, not the whole live prompt by t
   Turns storage compaction on or off.
 
 - `trigger_tokens`
-  When stored history grows past this estimate, Lumen compacts older history.
+  When stored history grows past this estimate, Element Orion compacts older history.
 
 - `target_tokens`
-  After compaction, Lumen tries to shrink the stored history to around this size.
+  After compaction, Element Orion tries to shrink the stored history to around this size.
 
 - `preserve_recent_messages`
   Keeps the newest messages verbatim so the recent local thread stays crisp.
@@ -235,7 +235,7 @@ This block decides whether background-worker shell commands can be redirected in
   Makes sandboxing mandatory for every background task.
 
 - `use_sudo`
-  Lets Lumen run privileged sandbox commands through `sudo`.
+  Lets Element Orion run privileged sandbox commands through `sudo`.
 
 - `provider`
   Current implementation is `nspawn`.
@@ -297,7 +297,7 @@ This is the fix for the "uploaded file is only a link" problem.
 With download enabled:
 
 1. user uploads a file
-2. Lumen downloads it into `incoming_attachments_dir`
+2. Element Orion downloads it into `incoming_attachments_dir`
 3. prompt content is rewritten to include the local path
 4. file tools and shell tools can use that path directly
 
@@ -329,7 +329,7 @@ Important behavior:
 
 - `isolated_session: true` means heartbeat runs do not reuse normal chat history
 - `light_context: true` means heartbeat sees less loaded memory
-- `target` tells Lumen where proactive replies are allowed to go
+- `target` tells Element Orion where proactive replies are allowed to go
 
 #### Heartbeat timezone behavior
 
@@ -342,7 +342,7 @@ For user-facing scheduling and active hours, the important field is:
 
 - `heartbeat.active_hours.timezone`
 
-If that is empty, Lumen falls back to local runtime behavior where appropriate.
+If that is empty, Element Orion falls back to local runtime behavior where appropriate.
 
 This is especially important if you want morning check-ins and "tomorrow" logic to feel natural to the machine/user locale rather than reading like UTC everywhere.
 
@@ -356,7 +356,7 @@ Typical setup:
 - `channel_id`
 - `user_id`
 
-This tells Lumen where proactive messages belong.
+This tells Element Orion where proactive messages belong.
 
 ### `event_webhook`
 
@@ -364,7 +364,7 @@ This tells Lumen where proactive messages belong.
 
 Optional HTTP endpoint that turns external calls into heartbeat events.
 
-This is useful for “tell Lumen when deploys finish,” “queue a follow-up after CI,” or “wake the heartbeat when another service notices something.”
+This is useful for “tell Element Orion when deploys finish,” “queue a follow-up after CI,” or “wake the heartbeat when another service notices something.”
 
 ### `skills`
 
@@ -582,7 +582,7 @@ Good for:
 Workspace root precedence is:
 
 1. `-workspace-dir`
-2. `LUMEN_WORKSPACE_DIR`
+2. `ELEMENT_ORION_WORKSPACE_DIR`
 3. `app.workspace_root`
 
 ## Safe-to-commit rule
@@ -596,5 +596,5 @@ Commit:
 Do not commit:
 
 - `config/lumen.yaml`
-- `.lumen/`
+- `.element-orion/`
 - private identity or user-state files

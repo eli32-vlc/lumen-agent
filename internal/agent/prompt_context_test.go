@@ -7,19 +7,19 @@ import (
 	"testing"
 	"time"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/heartbeatstate"
-	"lumen-agent/internal/skills"
+	"element-orion/internal/config"
+	"element-orion/internal/heartbeatstate"
+	"element-orion/internal/skills"
 )
 
 func TestSystemPromptLoadsPersistentWorkspaceFiles(t *testing.T) {
 	workspace := t.TempDir()
 	memoryRoot := filepath.Join(workspace, ".memory")
 	writeTestFile(t, workspace, "BOOTSTRAP.md", "bootstrap ritual")
-	writeTestFile(t, workspace, "IDENTITY.md", "name: Lumen")
+	writeTestFile(t, workspace, "IDENTITY.md", "name: Element Orion")
 	writeTestFile(t, workspace, "USER.md", "name: Eason")
 	writeTestFile(t, workspace, "SOUL.md", "# Who You Are")
-	writeTestFile(t, workspace, "CODEBASE.md", "cmd/lumen-agent/main.go: CLI entrypoint")
+	writeTestFile(t, workspace, "CODEBASE.md", "cmd/element-orion/main.go: CLI entrypoint")
 	writeTestFile(t, workspace, "TASKS.md", "## Active\n- [ ] Finish repo audit")
 	writeTestFile(t, memoryRoot, "MEMORY.md", "curated memory")
 	writeTestFile(t, memoryRoot, "2026-03-12-PM.md", "current shard")
@@ -35,13 +35,13 @@ func TestSystemPromptLoadsPersistentWorkspaceFiles(t *testing.T) {
 		"[BEGIN BOOTSTRAP.md]",
 		"bootstrap ritual",
 		"[BEGIN IDENTITY.md]",
-		"name: Lumen",
+		"name: Element Orion",
 		"[BEGIN USER.md]",
 		"name: Eason",
 		"[BEGIN SOUL.md]",
 		"# Who You Are",
 		"[BEGIN CODEBASE.md]",
-		"cmd/lumen-agent/main.go: CLI entrypoint",
+		"cmd/element-orion/main.go: CLI entrypoint",
 		"[BEGIN TASKS.md]",
 		"Finish repo audit",
 		"[BEGIN MEMORY.md]",
@@ -113,7 +113,7 @@ func TestSystemPromptSkipsCuratedMemoryOutsidePrivateSessions(t *testing.T) {
 
 func TestSystemPromptLoadsGuildMemoryForSharedChannelSessions(t *testing.T) {
 	workspace := t.TempDir()
-	sessionDir := filepath.Join(workspace, ".lumen")
+	sessionDir := filepath.Join(workspace, ".element-orion")
 	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
 	writeTestFile(t, guildMemoryRoot, "MEMORY.md", "shared channel facts")
 	writeTestFile(t, guildMemoryRoot, "2026-03-12-PM.md", "current shared shard")
@@ -143,7 +143,7 @@ func TestSystemPromptLoadsGuildMemoryForSharedChannelSessions(t *testing.T) {
 
 func TestSystemPromptLoadsAllGuildMemoryShardsWhenEnabled(t *testing.T) {
 	workspace := t.TempDir()
-	sessionDir := filepath.Join(workspace, ".lumen")
+	sessionDir := filepath.Join(workspace, ".element-orion")
 	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
 	writeTestFile(t, guildMemoryRoot, "MEMORY.md", "shared channel facts")
 	writeTestFile(t, guildMemoryRoot, "2026-03-12-PM.md", "current shared shard")
@@ -189,7 +189,7 @@ func TestMemoryShardPathsCrossDayBoundary(t *testing.T) {
 
 func TestHeartbeatPromptLoadsHeartbeatChecklist(t *testing.T) {
 	workspace := t.TempDir()
-	writeTestFile(t, workspace, "IDENTITY.md", "name: Lumen")
+	writeTestFile(t, workspace, "IDENTITY.md", "name: Element Orion")
 	writeTestFile(t, workspace, "HEARTBEAT.md", "- Check for pending follow-ups")
 
 	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
@@ -212,7 +212,7 @@ func TestHeartbeatPromptLoadsHeartbeatChecklist(t *testing.T) {
 
 func TestSystemPromptInjectsHeartbeatState(t *testing.T) {
 	workspace := t.TempDir()
-	sessionDir := filepath.Join(workspace, ".lumen")
+	sessionDir := filepath.Join(workspace, ".element-orion")
 	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace, SessionDir: sessionDir}}}
 
 	err := heartbeatstate.Save(runner.cfg, heartbeatstate.State{
@@ -248,7 +248,7 @@ func TestSystemPromptInjectsHeartbeatState(t *testing.T) {
 
 func TestHeartbeatLightContextLoadsOnlyHeartbeatChecklist(t *testing.T) {
 	workspace := t.TempDir()
-	writeTestFile(t, workspace, "IDENTITY.md", "name: Lumen")
+	writeTestFile(t, workspace, "IDENTITY.md", "name: Element Orion")
 	writeTestFile(t, workspace, "HEARTBEAT.md", "- Watch for urgent work")
 
 	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
@@ -505,11 +505,11 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 	}()
 
 	workspace := t.TempDir()
-	sessionDir := filepath.Join(workspace, ".lumen")
+	sessionDir := filepath.Join(workspace, ".element-orion")
 	memoryDir := filepath.Join(sessionDir, "memory")
 	cfg := config.Config{
 		App: config.AppConfig{
-			Name:                "Lumen Agent",
+			Name:                "Element Orion",
 			WorkspaceRoot:       workspace,
 			SessionDir:          sessionDir,
 			MemoryDir:           memoryDir,
@@ -598,7 +598,7 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 
 	for _, snippet := range []string{
 		"Runtime metadata:",
-		"Agent name: Lumen Agent",
+		"Agent name: Element Orion",
 		"Model: gpt-5.5-preview",
 		"Provider: codex",
 		"Provider base URL: https://api.example.test/v1",

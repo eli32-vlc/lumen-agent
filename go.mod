@@ -1,4 +1,4 @@
-module lumen-agent
+module element-orion
 
 go 1.24.2
 

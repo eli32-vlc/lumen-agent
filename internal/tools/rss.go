@@ -424,7 +424,7 @@ func (r *Registry) fetchRSSFeed(ctx context.Context, feedURL string) (rssParsedF
 	if err != nil {
 		return rssParsedFeed{}, fmt.Errorf("build rss request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Lumen-Agent/1.0 (+rss)")
+	req.Header.Set("User-Agent", "Element-Orion/1.0 (+rss)")
 	req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.1")
 
 	resp, err := r.rssClient.Do(req)

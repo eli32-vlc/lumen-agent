@@ -1,6 +1,6 @@
 # Sandboxing
 
-Lumen supports optional sandboxed execution for background tasks using Debian `systemd-nspawn` containers.
+Element Orion supports optional sandboxed execution for background tasks using Debian `systemd-nspawn` containers.
 
 This is not meant to sandbox every foreground action by default. It is specifically designed for background-task execution and explicit container lifecycle management.
 
@@ -132,8 +132,8 @@ That makes sandboxing visible and debuggable:
 
 - This feature is Linux-oriented. It depends on systemd tooling.
 - `debootstrap`, `systemd-nspawn`, `machinectl`, and `systemd-run` need to exist on the host.
-- Creating or starting sandboxes usually requires running the Lumen service with root privileges.
-- If `background_tasks.sandbox.use_sudo` is enabled, Lumen will try to run those privileged sandbox commands via `sudo`, which works best with passwordless sudo.
+- Creating or starting sandboxes usually requires running the Element Orion service with root privileges.
+- If `background_tasks.sandbox.use_sudo` is enabled, Element Orion will try to run those privileged sandbox commands via `sudo`, which works best with passwordless sudo.
 - If the host has low disk space or missing packages, sandbox creation can fail.
 - A half-created rootfs can leave a container directory that exists but is not usable.
 
@@ -147,7 +147,7 @@ Also remember:
 
 The point is not just isolation. The point is controlled isolation.
 
-Lumen gives the Dom Agent both:
+Element Orion gives the Dom Agent both:
 
 - a way to run background shell commands in a container
 - a way to inspect and manage that container lifecycle from the same runtime

@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 const (

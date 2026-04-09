@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"lumen-agent/internal/agent"
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/agent"
+	"element-orion/internal/config"
+	"element-orion/internal/llm"
+	"element-orion/internal/tools"
 )
 
 func TestIsEmergencyStopCommand(t *testing.T) {
@@ -124,8 +124,8 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 	cfg := config.Config{
 		App: config.AppConfig{
 			WorkspaceRoot: workspace,
-			SessionDir:    filepath.Join(workspace, ".lumen"),
-			MemoryDir:     filepath.Join(workspace, ".lumen", "memory"),
+			SessionDir:    filepath.Join(workspace, ".element-orion"),
+			MemoryDir:     filepath.Join(workspace, ".element-orion", "memory"),
 			HistoryCompaction: config.AppHistoryCompactionConfig{
 				Enabled:                true,
 				TriggerTokens:          12000,
@@ -177,7 +177,7 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"## 🌙 Lumen Check-In",
+		"## Element Orion Check-In",
 		"**Context**",
 		"```text",
 		"🛠️ Background jobs: 3 active (1 queued, 2 running), 1 done, 1 failed, 1 canceled",
@@ -205,8 +205,8 @@ func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
 	cfg := config.Config{
 		App: config.AppConfig{
 			WorkspaceRoot: workspace,
-			SessionDir:    filepath.Join(workspace, ".lumen"),
-			MemoryDir:     filepath.Join(workspace, ".lumen", "memory"),
+			SessionDir:    filepath.Join(workspace, ".element-orion"),
+			MemoryDir:     filepath.Join(workspace, ".element-orion", "memory"),
 		},
 		LLM: config.LLMConfig{
 			ContextWindowTokens: 1000000,
@@ -227,7 +227,7 @@ func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"## 🌙 Lumen Check-In",
+		"## Element Orion Check-In",
 		"🧠 Context usage: ",
 		"🛠️ Background jobs: none",
 		"💤 no active chat in this channel",
@@ -241,7 +241,7 @@ func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
 func TestMemoryReportShowsShardSummary(t *testing.T) {
 	key := sessionKey{GuildID: "", ChannelID: "dm-channel", UserID: "user"}
 	workspace := t.TempDir()
-	memoryRoot := filepath.Join(workspace, ".lumen", "memory")
+	memoryRoot := filepath.Join(workspace, ".element-orion", "memory")
 	if err := os.MkdirAll(memoryRoot, 0o755); err != nil {
 		t.Fatalf("mkdir memory root: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestMemoryReportShowsShardSummary(t *testing.T) {
 		cfg: config.Config{
 			App: config.AppConfig{
 				WorkspaceRoot:       workspace,
-				SessionDir:          filepath.Join(workspace, ".lumen"),
+				SessionDir:          filepath.Join(workspace, ".element-orion"),
 				MemoryDir:           memoryRoot,
 				LoadAllMemoryShards: false,
 			},
@@ -289,7 +289,7 @@ func TestMemoryReportShowsShardSummary(t *testing.T) {
 		"**Memory**",
 		"```text",
 		"Status      enabled",
-		"Root        ./.lumen/memory",
+		"Root        ./.element-orion/memory",
 		"Shards      3 total, 2 loaded now, current + previous half-day",
 		"Range       2026-03-29 08:14 AEST -> 2026-03-29 13:11 AEST",
 		"Size        ",
@@ -306,7 +306,7 @@ func TestMemoryReportShowsShardSummary(t *testing.T) {
 func TestMemoryReportUsesSharedGuildMemoryRoot(t *testing.T) {
 	key := sessionKey{GuildID: "guild-1", ChannelID: "channel-1", UserID: "user-1"}
 	workspace := t.TempDir()
-	sessionDir := filepath.Join(workspace, ".lumen")
+	sessionDir := filepath.Join(workspace, ".element-orion")
 	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
 	if err := os.MkdirAll(guildMemoryRoot, 0o755); err != nil {
 		t.Fatalf("mkdir guild memory root: %v", err)
@@ -330,7 +330,7 @@ func TestMemoryReportUsesSharedGuildMemoryRoot(t *testing.T) {
 	}
 
 	report := service.memoryReport(key)
-	if !contains(report, "Root        ./.lumen/guild-memory/guild-1/channel-1") {
+	if !contains(report, "Root        ./.element-orion/guild-memory/guild-1/channel-1") {
 		t.Fatalf("expected guild memory root in report, got:\n%s", report)
 	}
 }

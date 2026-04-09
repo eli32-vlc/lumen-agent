@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"lumen-agent/internal/tools"
+	"element-orion/internal/tools"
 )
 
 func (s *Service) ScheduleHeartbeatWakeup(ctx context.Context, options tools.ScheduledWakeupCreateOptions) (tools.ScheduledWakeupInfo, error) {

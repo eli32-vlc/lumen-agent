@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"lumen-agent/internal/llm"
+	"element-orion/internal/llm"
 )
 
 func TestHandleCompactContextReturnsSignal(t *testing.T) {

@@ -68,7 +68,7 @@ func TestOverrideWorkspaceRootRepointsDefaultSessionAndMemoryDirs(t *testing.T) 
 	if err := os.MkdirAll(newWorkspaceDir, 0o755); err != nil {
 		t.Fatalf("mkdir new workspace: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(newWorkspaceDir, ".lumen", "memory"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(newWorkspaceDir, ".element-orion", "memory"), 0o755); err != nil {
 		t.Fatalf("mkdir new workspace memory: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestOverrideWorkspaceRootRepointsDefaultSessionAndMemoryDirs(t *testing.T) 
 
 	cfg := Config{}
 	cfg.App.WorkspaceRoot = oldWorkspaceDir
-	cfg.App.SessionDir = filepath.Join(oldWorkspaceDir, ".lumen")
+	cfg.App.SessionDir = filepath.Join(oldWorkspaceDir, ".element-orion")
 	cfg.App.MemoryDir = filepath.Join(cfg.App.SessionDir, "memory")
 
 	if err := cfg.OverrideWorkspaceRoot("new-workspace"); err != nil {
@@ -89,8 +89,8 @@ func TestOverrideWorkspaceRootRepointsDefaultSessionAndMemoryDirs(t *testing.T) 
 	}
 
 	assertResolvedPathEqual(t, cfg.App.WorkspaceRoot, newWorkspaceDir)
-	assertResolvedPathEqual(t, cfg.App.SessionDir, filepath.Join(newWorkspaceDir, ".lumen"))
-	assertResolvedPathEqual(t, cfg.App.MemoryDir, filepath.Join(newWorkspaceDir, ".lumen", "memory"))
+	assertResolvedPathEqual(t, cfg.App.SessionDir, filepath.Join(newWorkspaceDir, ".element-orion"))
+	assertResolvedPathEqual(t, cfg.App.MemoryDir, filepath.Join(newWorkspaceDir, ".element-orion", "memory"))
 }
 
 func TestOverrideWorkspaceRootKeepsExplicitMemoryDir(t *testing.T) {
@@ -122,7 +122,7 @@ func TestOverrideWorkspaceRootKeepsExplicitMemoryDir(t *testing.T) {
 
 	cfg := Config{}
 	cfg.App.WorkspaceRoot = oldWorkspaceDir
-	cfg.App.SessionDir = filepath.Join(oldWorkspaceDir, ".lumen")
+	cfg.App.SessionDir = filepath.Join(oldWorkspaceDir, ".element-orion")
 	cfg.App.MemoryDir = explicitMemoryDir
 
 	if err := cfg.OverrideWorkspaceRoot("new-workspace"); err != nil {
@@ -196,11 +196,11 @@ func TestValidateEventWebhookRejectsInvalidDefaultMode(t *testing.T) {
 }
 
 func TestResolveEventWebhookSecretFromEnv(t *testing.T) {
-	t.Setenv("LUMEN_EVENT_WEBHOOK_SECRET_TEST", "secret-from-env")
+	t.Setenv("ELEMENT_ORION_EVENT_WEBHOOK_SECRET_TEST", "secret-from-env")
 
 	cfg := Config{
 		EventWebhook: EventWebhookConfig{
-			SecretEnv: "LUMEN_EVENT_WEBHOOK_SECRET_TEST",
+			SecretEnv: "ELEMENT_ORION_EVENT_WEBHOOK_SECRET_TEST",
 		},
 	}
 
@@ -219,7 +219,7 @@ func TestResolvePathsSetsDefaultMemoryDirAndToolCallLimit(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.sourcePath = filepath.Join(tempRoot, "lumen.yaml")
 	cfg.App.WorkspaceRoot = "."
-	cfg.App.SessionDir = ".lumen"
+	cfg.App.SessionDir = ".element-orion"
 	cfg.App.MemoryDir = ""
 	cfg.App.MaxToolCallsPerTurn = 0
 
@@ -267,9 +267,9 @@ func TestResolvePathsCreatesSandboxMachinesDirWhenEnabled(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.sourcePath = filepath.Join(tempRoot, "lumen.yaml")
 	cfg.App.WorkspaceRoot = "."
-	cfg.App.SessionDir = ".lumen"
+	cfg.App.SessionDir = ".element-orion"
 	cfg.BackgroundTasks.Sandbox.Enabled = true
-	cfg.BackgroundTasks.Sandbox.MachinesDir = ".lumen/sandboxes"
+	cfg.BackgroundTasks.Sandbox.MachinesDir = ".element-orion/sandboxes"
 
 	if err := cfg.resolvePaths(); err != nil {
 		t.Fatalf("resolvePaths returned error: %v", err)

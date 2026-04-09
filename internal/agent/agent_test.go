@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/llm"
-	"lumen-agent/internal/tools"
+	"element-orion/internal/config"
+	"element-orion/internal/llm"
+	"element-orion/internal/tools"
 )
 
 type fakeChatResult struct {

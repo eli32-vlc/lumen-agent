@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"lumen-agent/internal/auditlog"
-	"lumen-agent/internal/config"
+	"element-orion/internal/auditlog"
+	"element-orion/internal/config"
 )
 
 func TestBuildStateMarksActiveNodesAndEdges(t *testing.T) {
@@ -201,7 +201,7 @@ func TestBuildConfigStateSummarizesHeartbeatAndMCP(t *testing.T) {
 	cfg := config.Config{
 		App: config.AppConfig{
 			WorkspaceRoot: "/workspace/lumen",
-			SessionDir:    "/workspace/lumen/.lumen",
+			SessionDir:    "/workspace/lumen/.element-orion",
 		},
 		LLM: config.LLMConfig{
 			Model: "gpt-5.4",

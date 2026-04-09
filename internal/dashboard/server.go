@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/auditlog"
-	"lumen-agent/internal/config"
+	"element-orion/internal/auditlog"
+	"element-orion/internal/config"
 )
 
 const (

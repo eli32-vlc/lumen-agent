@@ -12,9 +12,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"lumen-agent/internal/agent"
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/llm"
+	"element-orion/internal/agent"
+	"element-orion/internal/config"
+	"element-orion/internal/llm"
 )
 
 func TestPrepareRunHistoryIsolatesHeartbeatSessions(t *testing.T) {
@@ -179,7 +179,7 @@ func TestTurnAssistantReplyStripsThinkBlocks(t *testing.T) {
 }
 
 func TestGuildMemoryShardPathUsesSessionDir(t *testing.T) {
-	sessionDir := filepath.Join(t.TempDir(), ".lumen")
+	sessionDir := filepath.Join(t.TempDir(), ".element-orion")
 	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
 
 	if err := agent.AppendToMemoryShard(guildMemoryRoot, "what did we talk about today", "we talked about memory", time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC)); err != nil {

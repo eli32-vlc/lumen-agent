@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/auditlog"
-	"lumen-agent/internal/config"
-	"lumen-agent/internal/dashboard"
-	"lumen-agent/internal/eventwebhook"
+	"element-orion/internal/auditlog"
+	"element-orion/internal/config"
+	"element-orion/internal/dashboard"
+	"element-orion/internal/eventwebhook"
 )
 
 func CanShareListener(cfg config.Config) bool {

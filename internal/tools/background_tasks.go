@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"lumen-agent/internal/llm"
+	"element-orion/internal/llm"
 )
 
 type backgroundTaskContextKey struct{}

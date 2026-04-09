@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"lumen-agent/internal/config"
+	"element-orion/internal/config"
 )
 
 const skillDocName = "SKILL.md"
