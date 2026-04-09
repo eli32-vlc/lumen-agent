@@ -55,6 +55,103 @@ Workspace`)
 	}
 }
 
+func TestLoaderIncludesClaudeCodeWorkspaceSkillsAndCommands(t *testing.T) {
+	workspace := t.TempDir()
+	writeSkill(t, filepath.Join(workspace, ".claude", "skills", "release", "SKILL.md"), `---
+name: release-skill
+description: claude workspace skill
+version: 1.2.3
+---
+content`)
+	writeSkill(t, filepath.Join(workspace, ".claude", "commands", "triage.md"), `---
+description: claude workspace command
+---
+content`)
+	writeSkill(t, filepath.Join(workspace, ".claude", "commands", "ops", "deploy.md"), `---
+description: deploy command
+---
+content`)
+
+	cfg := config.Config{
+		App:    config.AppConfig{WorkspaceRoot: workspace},
+		Skills: config.SkillsConfig{Enabled: true},
+	}
+
+	snapshot := NewLoader(cfg).Snapshot()
+	if len(snapshot) != 3 {
+		t.Fatalf("expected three Claude-compatible entries, got %d", len(snapshot))
+	}
+
+	byName := map[string]Summary{}
+	for _, skill := range snapshot {
+		byName[skill.Name] = skill
+	}
+
+	if byName["release-skill"].Description != "claude workspace skill" {
+		t.Fatalf("expected Claude workspace skill to load, got %#v", byName["release-skill"])
+	}
+	if byName["release-skill"].Version != "1.2.3" {
+		t.Fatalf("expected Claude workspace skill version to be preserved, got %#v", byName["release-skill"])
+	}
+	if byName["triage"].Description != "claude workspace command" {
+		t.Fatalf("expected Claude command fallback name to load, got %#v", byName["triage"])
+	}
+	if byName["ops/deploy"].Description != "deploy command" {
+		t.Fatalf("expected nested Claude command fallback name to use relative path, got %#v", byName["ops/deploy"])
+	}
+}
+
+func TestLoaderPrefersWorkspaceSkillsOverClaudeWorkspaceSkills(t *testing.T) {
+	workspace := t.TempDir()
+	writeSkill(t, filepath.Join(workspace, ".claude", "skills", "review", "SKILL.md"), `---
+name: review
+description: claude description
+---
+Claude`)
+	writeSkill(t, filepath.Join(workspace, "skills", "review", "SKILL.md"), `---
+name: review
+description: workspace description
+---
+Workspace`)
+
+	cfg := config.Config{
+		App:    config.AppConfig{WorkspaceRoot: workspace},
+		Skills: config.SkillsConfig{Enabled: true},
+	}
+
+	snapshot := NewLoader(cfg).Snapshot()
+	if len(snapshot) != 1 {
+		t.Fatalf("expected one merged skill, got %d", len(snapshot))
+	}
+	if snapshot[0].Description != "workspace description" {
+		t.Fatalf("expected native workspace skills to keep highest precedence, got %q", snapshot[0].Description)
+	}
+}
+
+func TestLoaderIncludesClaudeUserSkills(t *testing.T) {
+	workspace := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	writeSkill(t, filepath.Join(homeDir, ".claude", "skills", "incident", "SKILL.md"), `---
+name: incident
+description: claude user skill
+---
+content`)
+
+	cfg := config.Config{
+		App:    config.AppConfig{WorkspaceRoot: workspace},
+		Skills: config.SkillsConfig{Enabled: true},
+	}
+
+	snapshot := NewLoader(cfg).Snapshot()
+	if len(snapshot) != 1 {
+		t.Fatalf("expected one Claude user skill, got %d", len(snapshot))
+	}
+	if snapshot[0].Name != "incident" || snapshot[0].Description != "claude user skill" {
+		t.Fatalf("expected Claude user skill to load, got %#v", snapshot[0])
+	}
+}
+
 func TestLoaderSkipsSkillsWithMissingRequirements(t *testing.T) {
 	workspace := t.TempDir()
 	writeSkill(t, filepath.Join(workspace, "skills", "requires-env", "SKILL.md"), `---

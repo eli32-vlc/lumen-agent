@@ -370,6 +370,15 @@ This is useful for “tell Element Orion when deploys finish,” “queue a foll
 
 Controls where `SKILL.md` manuals are loaded from.
 
+Element Orion also auto-discovers Claude Code-compatible manuals without extra config:
+
+- project skills in `.claude/skills/**/SKILL.md`
+- project commands in `.claude/commands/**/*.md`
+- user skills in `~/.claude/skills/**/SKILL.md`
+- user commands in `~/.claude/commands/**/*.md`
+
+Precedence stays workspace-first, so native workspace `skills/<name>/SKILL.md` entries still override Claude-compatible project or user entries with the same skill name.
+
 ### `mcp`
 
 Defines external MCP servers and their startup/tool timeouts.

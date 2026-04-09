@@ -617,3 +617,14 @@ OpenClaw is part of the inspiration, but Element Orion is aiming at a different 
 - foreground dom agent plus separate worker lane
 
 In short: less agent theater, more observable runtime behavior.
+
+## Skill Compatibility
+
+Element Orion's native skill format is OpenClaw-style `skills/<name>/SKILL.md`, but the loader also understands Claude Code-compatible locations:
+
+- project skills in `.claude/skills/**/SKILL.md`
+- project commands in `.claude/commands/**/*.md`
+- user skills in `~/.claude/skills/**/SKILL.md`
+- user commands in `~/.claude/commands/**/*.md`
+
+Both ecosystems use Markdown plus YAML frontmatter, so the compatibility layer is mostly about discovering Claude-style paths while preserving existing OpenClaw precedence and requirement filtering.

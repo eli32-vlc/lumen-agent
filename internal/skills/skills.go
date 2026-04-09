@@ -30,7 +30,15 @@ type Loader struct {
 type sourceDir struct {
 	Path   string
 	Source string
+	Mode   sourceMode
 }
+
+type sourceMode string
+
+const (
+	sourceModeSkillDoc       sourceMode = "skill_doc"
+	sourceModeClaudeCommands sourceMode = "claude_commands"
+)
 
 type frontmatter struct {
 	Name        string         `yaml:"name"`
@@ -57,7 +65,7 @@ func (l *Loader) Snapshot() []Summary {
 
 	byName := make(map[string]Summary)
 	for _, source := range l.skillSourceDirs() {
-		skills, err := loadSkillsFromDir(source.Path, source.Source)
+		skills, err := loadSkillsFromDir(source.Path, source.Source, source.Mode)
 		if err != nil {
 			continue
 		}
@@ -90,26 +98,51 @@ func (l *Loader) Snapshot() []Summary {
 
 func (l *Loader) skillSourceDirs() []sourceDir {
 	workspaceSkillsDir := filepath.Join(l.cfg.App.WorkspaceRoot, "skills")
+	workspaceClaudeSkillsDir := filepath.Join(l.cfg.App.WorkspaceRoot, ".claude", "skills")
+	workspaceClaudeCommandsDir := filepath.Join(l.cfg.App.WorkspaceRoot, ".claude", "commands")
+	claudeHome := claudeHomeDir()
 
 	dirs := []sourceDir{}
 	if strings.TrimSpace(l.cfg.Skills.Load.BundledDir) != "" {
-		dirs = append(dirs, sourceDir{Path: l.cfg.Skills.Load.BundledDir, Source: "bundled"})
+		dirs = append(dirs, sourceDir{Path: l.cfg.Skills.Load.BundledDir, Source: "bundled", Mode: sourceModeSkillDoc})
 	}
 	if strings.TrimSpace(l.cfg.Skills.Load.UserDir) != "" {
-		dirs = append(dirs, sourceDir{Path: l.cfg.Skills.Load.UserDir, Source: "user"})
+		dirs = append(dirs, sourceDir{Path: l.cfg.Skills.Load.UserDir, Source: "user", Mode: sourceModeSkillDoc})
+	}
+	if claudeHome != "" {
+		dirs = append(dirs,
+			sourceDir{Path: filepath.Join(claudeHome, "skills"), Source: "user", Mode: sourceModeSkillDoc},
+			sourceDir{Path: filepath.Join(claudeHome, "commands"), Source: "user", Mode: sourceModeClaudeCommands},
+		)
 	}
 	for _, extraDir := range l.cfg.Skills.Load.ExtraDirs {
 		if strings.TrimSpace(extraDir) == "" {
 			continue
 		}
-		dirs = append(dirs, sourceDir{Path: extraDir, Source: "extra"})
+		dirs = append(dirs, sourceDir{Path: extraDir, Source: "extra", Mode: sourceModeSkillDoc})
 	}
-	dirs = append(dirs, sourceDir{Path: workspaceSkillsDir, Source: "workspace"})
+	dirs = append(dirs,
+		sourceDir{Path: workspaceClaudeCommandsDir, Source: "workspace", Mode: sourceModeClaudeCommands},
+		sourceDir{Path: workspaceClaudeSkillsDir, Source: "workspace", Mode: sourceModeSkillDoc},
+		sourceDir{Path: workspaceSkillsDir, Source: "workspace", Mode: sourceModeSkillDoc},
+	)
 
 	return dirs
 }
 
-func loadSkillsFromDir(root string, source string) ([]Summary, error) {
+func claudeHomeDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	homeDir = strings.TrimSpace(homeDir)
+	if homeDir == "" {
+		return ""
+	}
+	return filepath.Join(homeDir, ".claude")
+}
+
+func loadSkillsFromDir(root string, source string, mode sourceMode) ([]Summary, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, nil
 	}
@@ -134,11 +167,11 @@ func loadSkillsFromDir(root string, source string) ([]Summary, error) {
 		if entry.IsDir() {
 			return nil
 		}
-		if !strings.EqualFold(entry.Name(), skillDocName) {
+		if !matchesSourceMode(path, entry, mode) {
 			return nil
 		}
 
-		skill, eligible, err := parseSkill(path, source)
+		skill, eligible, err := parseSkill(root, path, source, mode)
 		if err != nil || !eligible {
 			return nil
 		}
@@ -159,7 +192,16 @@ func loadSkillsFromDir(root string, source string) ([]Summary, error) {
 	return skills, nil
 }
 
-func parseSkill(path string, source string) (Summary, bool, error) {
+func matchesSourceMode(path string, entry fs.DirEntry, mode sourceMode) bool {
+	switch mode {
+	case sourceModeClaudeCommands:
+		return strings.EqualFold(filepath.Ext(entry.Name()), ".md")
+	default:
+		return strings.EqualFold(entry.Name(), skillDocName)
+	}
+}
+
+func parseSkill(root string, path string, source string, mode sourceMode) (Summary, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Summary{}, false, err
@@ -180,7 +222,7 @@ func parseSkill(path string, source string) (Summary, bool, error) {
 
 	name := strings.TrimSpace(meta.Name)
 	if name == "" {
-		name = strings.TrimSpace(filepath.Base(filepath.Dir(path)))
+		name = fallbackSkillName(root, path, mode)
 	}
 	if name == "" {
 		name = "unnamed-skill"
@@ -201,6 +243,23 @@ func parseSkill(path string, source string) (Summary, bool, error) {
 		Location:    filepath.ToSlash(filepath.Dir(path)),
 		Source:      source,
 	}, true, nil
+}
+
+func fallbackSkillName(root string, path string, mode sourceMode) string {
+	switch mode {
+	case sourceModeClaudeCommands:
+		relPath, err := filepath.Rel(root, path)
+		if err == nil {
+			relPath = strings.TrimSpace(relPath)
+			if relPath != "" && relPath != "." {
+				relPath = strings.TrimSuffix(relPath, filepath.Ext(relPath))
+				return filepath.ToSlash(relPath)
+			}
+		}
+		return strings.TrimSpace(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
+	default:
+		return strings.TrimSpace(filepath.Base(filepath.Dir(path)))
+	}
 }
 
 func splitFrontmatter(content string) (string, string) {
