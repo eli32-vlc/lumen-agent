@@ -467,6 +467,9 @@ func TestSystemPromptIncludesSharedChannelSilenceGuidance(t *testing.T) {
 		"Do not spam the channel with filler updates, repeated summaries, or \"still working\" messages that do not add new verified information.",
 		"Sound like a real person in a chat, not a helpdesk macro or a polished assistant demo.",
 		"If you use <chunk>, make each chunk feel intentional.",
+		"Treat <chunk> as a plain separator token between complete Discord messages, not as XML, HTML, or a wrapper tag.",
+		"Never output </chunk>.",
+		"Correct pattern: first message<chunk>second message.",
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)

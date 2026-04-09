@@ -9,7 +9,8 @@ import (
 const discordMessageLimit = 2000
 
 func splitOutgoingMessages(content string) []string {
-	rawParts := strings.Split(llm.StripMessageTimeMetadata(content), "<chunk>")
+	normalized := normalizeChunkTokens(llm.StripMessageTimeMetadata(content))
+	rawParts := strings.Split(normalized, "<chunk>")
 	parts := make([]string, 0, len(rawParts))
 	for _, raw := range rawParts {
 		trimmed := strings.TrimSpace(raw)
@@ -19,6 +20,10 @@ func splitOutgoingMessages(content string) []string {
 		parts = append(parts, splitDiscordSized(trimmed)...)
 	}
 	return parts
+}
+
+func normalizeChunkTokens(content string) string {
+	return strings.ReplaceAll(content, "</chunk>", "<chunk>")
 }
 
 func splitDiscordSized(text string) []string {

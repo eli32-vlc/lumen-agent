@@ -19,6 +19,32 @@ func TestSplitOutgoingMessagesChunks(t *testing.T) {
 	}
 }
 
+func TestSplitOutgoingMessagesNormalizesClosingChunkTags(t *testing.T) {
+	parts := splitOutgoingMessages("First reply</chunk>\nSecond reply</chunk>")
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(parts))
+	}
+	if parts[0] != "First reply" {
+		t.Fatalf("unexpected first part: %q", parts[0])
+	}
+	if parts[1] != "Second reply" {
+		t.Fatalf("unexpected second part: %q", parts[1])
+	}
+}
+
+func TestSplitOutgoingMessagesUnwrapsChunkTagStyleOutput(t *testing.T) {
+	parts := splitOutgoingMessages("<chunk>\nfirst message\n</chunk>\n<chunk>\nsecond message\n</chunk>")
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(parts))
+	}
+	if parts[0] != "first message" {
+		t.Fatalf("unexpected first part: %q", parts[0])
+	}
+	if parts[1] != "second message" {
+		t.Fatalf("unexpected second part: %q", parts[1])
+	}
+}
+
 func TestSplitOutgoingMessagesDiscordLimit(t *testing.T) {
 	text := strings.Repeat("a", discordMessageLimit+250)
 	parts := splitOutgoingMessages(text)
