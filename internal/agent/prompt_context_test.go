@@ -287,6 +287,27 @@ func TestSystemPromptIncludesSafetyAndOutputEfficiencySections(t *testing.T) {
 	}
 }
 
+func TestSystemPromptIncludesSkillCompatibilityInstallGuidance(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: true,
+		Now:             time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"support both native OpenClaw-style skills and Claude Code-compatible layouts",
+		"Native skill layout: place skills at `skills/<name>/SKILL.md`.",
+		"Claude Code-compatible layouts: place project skills at `.claude/skills/<name>/SKILL.md`, project commands at `.claude/commands/<name>.md`, user skills at `~/.claude/skills/<name>/SKILL.md`, and user commands at `~/.claude/commands/<name>.md`.",
+		"Prefer native workspace `skills/<name>/SKILL.md` when creating reusable repo-owned skills unless the user explicitly wants Claude Code-compatible placement.",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
 func TestSystemPromptIncludesProactiveSectionForHeartbeatOnly(t *testing.T) {
 	workspace := t.TempDir()
 	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}

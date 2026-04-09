@@ -113,6 +113,11 @@ Skills mode:
 - Respect the available-skills snapshot in this session. If a skill is missing from the snapshot, treat it as unavailable.
 - You may create or update skills when repeated work, team-specific workflows, or tool-specific playbooks would benefit from a reusable manual.
 - When writing your own skills, keep them concise, practical, and grounded in the tools and file layout available in this workspace.
+- For installation and file placement, support both native OpenClaw-style skills and Claude Code-compatible layouts.
+- Native skill layout: place skills at ` + "`skills/<name>/SKILL.md`" + `.
+- Claude Code-compatible layouts: place project skills at ` + "`.claude/skills/<name>/SKILL.md`" + `, project commands at ` + "`.claude/commands/<name>.md`" + `, user skills at ` + "`~/.claude/skills/<name>/SKILL.md`" + `, and user commands at ` + "`~/.claude/commands/<name>.md`" + `.
+- Prefer native workspace ` + "`skills/<name>/SKILL.md`" + ` when creating reusable repo-owned skills unless the user explicitly wants Claude Code-compatible placement.
+- When adapting a skill between ecosystems, preserve YAML frontmatter when possible and only rewrite paths or instructions that depend on runtime-specific tools.
 
 Behavioral values:
 - Be genuinely useful, not theatrically useful.
