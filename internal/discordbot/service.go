@@ -672,6 +672,7 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	}
 
 	reply, silent := turnAssistantReply(updated, previousHistoryLen)
+	silentReason := classifySilentTurn(updated, previousHistoryLen, reply, silent)
 	if silent {
 		updated = clearNoReplyToken(updated, previousHistoryLen)
 	}
@@ -690,6 +691,9 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	}
 
 	if silent || strings.TrimSpace(reply) == "" {
+		if silentReason != "" {
+			s.audit.Write("silent_reply", state.ID, map[string]any{"silent_reason": silentReason})
+		}
 		return
 	}
 
@@ -1157,6 +1161,39 @@ func turnAssistantReply(history []llm.Message, previousLen int) (string, bool) {
 	}
 
 	return "", false
+}
+
+func classifySilentTurn(history []llm.Message, previousLen int, reply string, silent bool) string {
+	if !silent && strings.TrimSpace(reply) != "" {
+		return ""
+	}
+	if previousLen < 0 {
+		previousLen = 0
+	}
+	if previousLen > len(history) {
+		previousLen = len(history)
+	}
+
+	turn := history[previousLen:]
+	sawAssistant := false
+	for i := len(turn) - 1; i >= 0; i-- {
+		message := turn[i]
+		if message.Role != "assistant" {
+			continue
+		}
+		sawAssistant = true
+		trimmed := strings.TrimSpace(message.Content)
+		if trimmed == agent.NoReplyToken {
+			return "no_reply_token"
+		}
+		if trimmed != "" {
+			break
+		}
+	}
+	if !sawAssistant {
+		return "no_assistant_message"
+	}
+	return "empty_reply"
 }
 
 func clearNoReplyToken(history []llm.Message, previousLen int) []llm.Message {

@@ -384,6 +384,43 @@ func TestTurnAssistantReplyStripsThinkBlocks(t *testing.T) {
 	}
 }
 
+func TestClassifySilentTurnDetectsNoReplyToken(t *testing.T) {
+	history := []llm.Message{
+		{Role: "assistant", Content: "older reply"},
+		{Role: "user", Content: "new message"},
+		{Role: "assistant", Content: agent.NoReplyToken},
+	}
+
+	reason := classifySilentTurn(history, 1, "", true)
+	if reason != "no_reply_token" {
+		t.Fatalf("expected no_reply_token, got %q", reason)
+	}
+}
+
+func TestClassifySilentTurnDetectsEmptyReply(t *testing.T) {
+	history := []llm.Message{
+		{Role: "user", Content: "new message"},
+		{Role: "assistant", Content: ""},
+	}
+
+	reason := classifySilentTurn(history, 0, "", false)
+	if reason != "empty_reply" {
+		t.Fatalf("expected empty_reply, got %q", reason)
+	}
+}
+
+func TestClassifySilentTurnDetectsMissingAssistantMessage(t *testing.T) {
+	history := []llm.Message{
+		{Role: "user", Content: "new message"},
+		{Role: "tool", Content: "done"},
+	}
+
+	reason := classifySilentTurn(history, 0, "", false)
+	if reason != "no_assistant_message" {
+		t.Fatalf("expected no_assistant_message, got %q", reason)
+	}
+}
+
 func TestGuildMemoryShardPathUsesSessionDir(t *testing.T) {
 	sessionDir := filepath.Join(t.TempDir(), ".element-orion")
 	guildMemoryRoot := filepath.Join(sessionDir, "guild-memory", "guild-1", "channel-1")
