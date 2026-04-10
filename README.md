@@ -186,7 +186,7 @@ This is the shortest path from clone to a working bot.
 Before you start, make sure you have:
 
 - Go installed
-- a Discord application and bot token
+- a Discord bot token, or a Discord user token if you want user-mode auth
 - an OpenAI-compatible API key
 - a machine where the bot can keep local state on disk
 
@@ -220,13 +220,15 @@ That file is git-ignored on purpose.
 
 At minimum, set:
 
-- `discord.bot_token`
+- `discord.token_mode`
+- `discord.bot_token` or `discord.user_token`
 - `llm.model`
 - `llm.api_key` or `llm.api_key_env`
 
 You also need to decide where the bot is allowed to operate:
 
 - `discord.allow_direct_messages`
+- `discord.allow_group_direct_messages`
 - `discord.allowed_guild_ids`
 - `discord.allowed_dm_user_ids`
 - `discord.allowed_outbound_channel_ids`
@@ -503,8 +505,11 @@ llm:
   inject_message_timestamps: true
 
 discord:
+  token_mode: bot
   bot_token: your-discord-token
+  user_token: ""
   allow_direct_messages: true
+  allow_group_direct_messages: false
   guild_session_scope: channel
   download_incoming_attachments: true
   incoming_attachments_dir: ./.element-orion/incoming-attachments

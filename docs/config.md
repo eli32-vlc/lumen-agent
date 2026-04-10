@@ -29,7 +29,8 @@ That means bad config is often the root cause of weird agent behavior.
 
 At minimum, configure:
 
-- `discord.bot_token`
+- `discord.token_mode`
+- `discord.bot_token` or `discord.user_token`
 - your guild or DM allowlist
 - `llm.model`
 - `llm.api_key` or `llm.api_key_env`
@@ -270,8 +271,11 @@ Controls access rules and Discord-specific behavior.
 
 Key fields:
 
+- `token_mode`
 - `bot_token`
+- `user_token`
 - `allow_direct_messages`
+- `allow_group_direct_messages`
 - `allowed_guild_ids`
 - `allowed_dm_user_ids`
 - `allowed_outbound_channel_ids`
@@ -279,6 +283,14 @@ Key fields:
 - `reply_to_message`
 - `download_incoming_attachments`
 - `incoming_attachments_dir`
+
+`token_mode` controls how Discord authentication works:
+
+- `bot`
+  Uses `bot_token`, enables slash commands, and keeps the normal bot gateway setup.
+
+- `user`
+  Uses `user_token` as a raw user authorization token. Slash commands are skipped in this mode.
 
 `guild_session_scope` matters a lot:
 

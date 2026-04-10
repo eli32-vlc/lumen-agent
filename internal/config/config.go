@@ -119,8 +119,11 @@ type DashboardConfig struct {
 }
 
 type DiscordConfig struct {
+	TokenMode                   string   `yaml:"token_mode"`
 	BotToken                    string   `yaml:"bot_token"`
+	UserToken                   string   `yaml:"user_token"`
 	AllowDirectMessages         bool     `yaml:"allow_direct_messages"`
+	AllowGroupDirectMessages    bool     `yaml:"allow_group_direct_messages"`
 	AllowedGuildIDs             []string `yaml:"allowed_guild_ids"`
 	AllowedDMUserIDs            []string `yaml:"allowed_dm_user_ids"`
 	AllowedOutboundChannelIDs   []string `yaml:"allowed_outbound_channel_ids"`
@@ -315,8 +318,11 @@ func defaultConfig() Config {
 			Path:       "/dashboard",
 		},
 		Discord: DiscordConfig{
+			TokenMode:                   "bot",
 			BotToken:                    "",
+			UserToken:                   "",
 			AllowDirectMessages:         false,
+			AllowGroupDirectMessages:    false,
 			AllowedGuildIDs:             []string{},
 			AllowedDMUserIDs:            []string{},
 			AllowedOutboundChannelIDs:   []string{},
@@ -483,6 +489,11 @@ func (c *Config) resolvePaths() error {
 		c.LLM.RetryMaxBackoff = "8s"
 	}
 	c.Discord.BotToken = strings.TrimSpace(c.Discord.BotToken)
+	c.Discord.UserToken = strings.TrimSpace(c.Discord.UserToken)
+	c.Discord.TokenMode = strings.TrimSpace(strings.ToLower(c.Discord.TokenMode))
+	if c.Discord.TokenMode == "" {
+		c.Discord.TokenMode = "bot"
+	}
 	c.Discord.AllowedGuildIDs = trimmedGuilds
 	c.Discord.AllowedDMUserIDs = uniqueTrimmedStrings(c.Discord.AllowedDMUserIDs)
 	c.Discord.AllowedOutboundChannelIDs = uniqueTrimmedStrings(c.Discord.AllowedOutboundChannelIDs)
@@ -683,12 +694,23 @@ func (c Config) validate() error {
 		}
 	}
 
-	if c.Discord.BotToken == "" {
-		return fmt.Errorf("discord.bot_token must be set")
+	if !slices.Contains([]string{"bot", "user"}, c.Discord.TokenMode) {
+		return fmt.Errorf("discord.token_mode must be one of bot or user")
 	}
 
-	if !c.Discord.AllowDirectMessages && len(c.Discord.AllowedGuildIDs) == 0 {
-		return fmt.Errorf("configure at least one discord.allowed_guild_ids entry or enable discord.allow_direct_messages")
+	switch c.Discord.TokenMode {
+	case "bot":
+		if c.Discord.BotToken == "" {
+			return fmt.Errorf("discord.bot_token must be set when discord.token_mode is bot")
+		}
+	case "user":
+		if c.Discord.UserToken == "" {
+			return fmt.Errorf("discord.user_token must be set when discord.token_mode is user")
+		}
+	}
+
+	if !c.Discord.AllowDirectMessages && !c.Discord.AllowGroupDirectMessages && len(c.Discord.AllowedGuildIDs) == 0 {
+		return fmt.Errorf("configure at least one discord.allowed_guild_ids entry or enable discord.allow_direct_messages or discord.allow_group_direct_messages")
 	}
 
 	if !slices.Contains([]string{"channel", "user"}, c.Discord.GuildSessionScope) {
@@ -916,6 +938,32 @@ func (c Config) ResolveGIFAPIKey() (string, error) {
 	}
 
 	return value, nil
+}
+
+func (c Config) DiscordUsesBotToken() bool {
+	return strings.TrimSpace(strings.ToLower(c.Discord.TokenMode)) != "user"
+}
+
+func (c Config) ResolveDiscordGatewayToken() (string, error) {
+	if c.DiscordUsesBotToken() {
+		if strings.TrimSpace(c.Discord.BotToken) == "" {
+			return "", fmt.Errorf("discord.bot_token is not configured")
+		}
+		return "Bot " + strings.TrimSpace(c.Discord.BotToken), nil
+	}
+
+	if strings.TrimSpace(c.Discord.UserToken) == "" {
+		return "", fmt.Errorf("discord.user_token is not configured")
+	}
+	return strings.TrimSpace(c.Discord.UserToken), nil
+}
+
+func (c Config) ResolveDiscordAuthorizationHeader() (string, error) {
+	return c.ResolveDiscordGatewayToken()
+}
+
+func (c Config) SupportsDiscordApplicationCommands() bool {
+	return c.DiscordUsesBotToken()
 }
 
 func (c Config) LLMTimeout() time.Duration {

@@ -411,6 +411,56 @@ func TestResolvePathsNormalizesDiscordListsAndSessionScope(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresUserTokenInUserMode(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.App.WorkspaceRoot = t.TempDir()
+	cfg.App.SessionDir = t.TempDir()
+	cfg.App.MemoryDir = t.TempDir()
+	cfg.Discord.TokenMode = "user"
+	cfg.Discord.BotToken = ""
+	cfg.Discord.UserToken = ""
+	cfg.Discord.AllowGroupDirectMessages = true
+
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("expected validation error for missing discord.user_token")
+	}
+	if !strings.Contains(err.Error(), "discord.user_token") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
+func TestValidateAllowsGroupDirectMessagesWithoutGuildsOrDMs(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.App.WorkspaceRoot = t.TempDir()
+	cfg.App.SessionDir = t.TempDir()
+	cfg.App.MemoryDir = t.TempDir()
+	cfg.Discord.TokenMode = "user"
+	cfg.Discord.BotToken = ""
+	cfg.Discord.UserToken = "user-token"
+	cfg.Discord.AllowDirectMessages = false
+	cfg.Discord.AllowGroupDirectMessages = true
+	cfg.Discord.AllowedGuildIDs = nil
+
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("expected group direct messages to satisfy the routing requirement, got %v", err)
+	}
+}
+
+func TestResolveDiscordAuthorizationHeaderUsesUserTokenRaw(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Discord.TokenMode = "user"
+	cfg.Discord.UserToken = "user-token"
+
+	value, err := cfg.ResolveDiscordAuthorizationHeader()
+	if err != nil {
+		t.Fatalf("ResolveDiscordAuthorizationHeader returned error: %v", err)
+	}
+	if value != "user-token" {
+		t.Fatalf("expected raw user token header, got %q", value)
+	}
+}
+
 func TestValidateRejectsInvalidRetryAttempts(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.App.WorkspaceRoot = t.TempDir()

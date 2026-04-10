@@ -106,6 +106,75 @@ func TestUserPromptFromMessageFormatsSharedChannelMetadata(t *testing.T) {
 	}
 }
 
+func TestSessionKeyUsesSharedGroupDMScope(t *testing.T) {
+	service := &Service{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{AllowGroupDirectMessages: true},
+		},
+		channelTypes: map[string]discordgo.ChannelType{
+			"channel-1": discordgo.ChannelTypeGroupDM,
+		},
+	}
+
+	keyA := service.sessionKey("", "channel-1", "user-a")
+	keyB := service.sessionKey("", "channel-1", "user-b")
+
+	if keyA.String() != keyB.String() {
+		t.Fatalf("expected shared group DM scope to collapse users into one session key, got %q vs %q", keyA.String(), keyB.String())
+	}
+}
+
+func TestAuthorizeMessageContextAllowsGroupDMWhenEnabled(t *testing.T) {
+	service := &Service{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{AllowGroupDirectMessages: true},
+		},
+		channelTypes: map[string]discordgo.ChannelType{
+			"channel-1": discordgo.ChannelTypeGroupDM,
+		},
+	}
+
+	message := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ChannelID: "channel-1",
+		Author:    &discordgo.User{ID: "user-1"},
+	}}
+
+	if ok, reason := service.authorizeMessageContext(message); !ok {
+		t.Fatalf("expected group DM message to be authorized, got reason %q", reason)
+	}
+}
+
+func TestUserPromptFromMessageFormatsSharedGroupDMMetadata(t *testing.T) {
+	service := &Service{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{AllowGroupDirectMessages: true},
+		},
+		application: "bot-1",
+		channelTypes: map[string]discordgo.ChannelType{
+			"channel-1": discordgo.ChannelTypeGroupDM,
+		},
+	}
+
+	message := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        "message-1",
+		ChannelID: "channel-1",
+		Content:   "hey from the group",
+		Author:    &discordgo.User{ID: "user-1", Username: "jack", GlobalName: "Jack"},
+	}}
+
+	prompt := service.userPromptFromMessage(message)
+	for _, snippet := range []string{
+		"Shared channel message",
+		"speaker: Jack",
+		"user_id: user-1",
+		"content:\nhey from the group",
+	} {
+		if !strings.Contains(prompt.Content, snippet) {
+			t.Fatalf("expected prompt to contain %q, got %q", snippet, prompt.Content)
+		}
+	}
+}
+
 func TestUserPromptFromMessageDownloadsAttachmentsAndRewritesURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "hello attachment")

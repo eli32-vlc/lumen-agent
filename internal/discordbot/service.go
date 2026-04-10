@@ -61,15 +61,17 @@ type Service struct {
 	audit        *auditlog.Logger
 	sandboxes    tools.SandboxManager
 	allowedGuild map[string]struct{}
+	channelTypes map[string]discordgo.ChannelType
 
-	mu               sync.RWMutex
-	runContext       context.Context
-	application      string
-	sessions         map[string]*sessionState
-	tasks            map[string]*backgroundTask
-	stats            runtimeStats
-	heartbeatMu      sync.Mutex
-	scheduledWakeups *scheduledWakeupManager
+	mu                  sync.RWMutex
+	runContext          context.Context
+	application         string
+	sessions            map[string]*sessionState
+	tasks               map[string]*backgroundTask
+	stats               runtimeStats
+	heartbeatMu         sync.Mutex
+	scheduledWakeups    *scheduledWakeupManager
+	channelTypeResolver func(channelID string) (discordgo.ChannelType, error)
 }
 
 type runtimeStats struct {
@@ -144,15 +146,22 @@ func New(cfg config.Config, runner *agent.Runner, audit *auditlog.Logger, sandbo
 		return nil, fmt.Errorf("audit logger must not be nil")
 	}
 
-	session, err := discordgo.New("Bot " + cfg.Discord.BotToken)
+	gatewayToken, err := cfg.ResolveDiscordGatewayToken()
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := discordgo.New(gatewayToken)
 	if err != nil {
 		return nil, fmt.Errorf("create Discord session: %w", err)
 	}
 
-	session.Identify.Intents = discordgo.IntentsGuilds |
-		discordgo.IntentsGuildMessages |
-		discordgo.IntentsDirectMessages |
-		discordgo.IntentsMessageContent
+	if cfg.DiscordUsesBotToken() {
+		session.Identify.Intents = discordgo.IntentsGuilds |
+			discordgo.IntentsGuildMessages |
+			discordgo.IntentsDirectMessages |
+			discordgo.IntentsMessageContent
+	}
 
 	service := &Service{
 		cfg:              cfg,
@@ -161,6 +170,7 @@ func New(cfg config.Config, runner *agent.Runner, audit *auditlog.Logger, sandbo
 		audit:            audit,
 		sandboxes:        sandboxes,
 		allowedGuild:     make(map[string]struct{}, len(cfg.Discord.AllowedGuildIDs)),
+		channelTypes:     make(map[string]discordgo.ChannelType),
 		sessions:         make(map[string]*sessionState),
 		tasks:            make(map[string]*backgroundTask),
 		scheduledWakeups: newScheduledWakeupManager(cfg),
@@ -194,15 +204,17 @@ func (s *Service) Run(ctx context.Context) error {
 
 	user, err := s.discord.User("@me")
 	if err != nil {
-		return fmt.Errorf("fetch bot identity: %w", err)
+		return fmt.Errorf("fetch Discord identity: %w", err)
 	}
 
 	s.mu.Lock()
 	s.application = user.ID
 	s.mu.Unlock()
 
-	if err := s.syncCommands(); err != nil {
-		return fmt.Errorf("sync slash commands: %w", err)
+	if s.cfg.SupportsDiscordApplicationCommands() {
+		if err := s.syncCommands(); err != nil {
+			return fmt.Errorf("sync slash commands: %w", err)
+		}
 	}
 
 	s.audit.Write("bot_connected", "", map[string]any{
@@ -441,11 +453,11 @@ func (s *Service) handleMessageCreate(_ *discordgo.Session, message *discordgo.M
 		return
 	}
 
-	if ok, _ := s.authorizeContext(message.GuildID, message.Author.ID); !ok {
+	if ok, _ := s.authorizeMessageContext(message); !ok {
 		return
 	}
 
-	key := s.sessionKey(message.GuildID, message.ChannelID, message.Author.ID)
+	key := s.sessionKeyForMessage(message)
 	s.recordInboundHeartbeatState(message)
 
 	if isEmergencyStopCommand(content) {
@@ -592,7 +604,7 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	history, skillsSnapshot := state.snapshotForRun()
 	history, previousHistoryLen, persistSessionHistory := s.prepareRunHistory(prompt, history)
 	updated, err := s.runner.Run(runCtx, history, prompt.Content, agent.ConversationContext{
-		IsDirectMessage: state.Key.GuildID == "",
+		IsDirectMessage: !s.isSharedConversation(state.Key.GuildID, state.Key.ChannelID),
 		IsHeartbeat:     prompt.Kind == promptKindHeartbeat,
 		LightContext:    prompt.LightContext,
 		GuildID:         prompt.GuildID,
@@ -668,14 +680,13 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	if memoryPrompt == "" {
 		memoryPrompt = strings.TrimSpace(prompt.Content)
 	}
-	if state.Key.GuildID == "" {
+	if memoryRoot := s.sharedMemoryRoot(state.Key); memoryRoot != "" {
+		if err := agent.AppendToMemoryShard(memoryRoot, memoryPrompt, reply, time.Now()); err != nil {
+			s.audit.Write("error", state.ID, map[string]any{"op": "append_shared_memory_shard", "error": err.Error()})
+		}
+	} else if state.Key.GuildID == "" {
 		if err := agent.AppendToMemoryShard(s.cfg.App.MemoryDir, memoryPrompt, reply, time.Now()); err != nil {
 			s.audit.Write("error", state.ID, map[string]any{"op": "append_memory_shard", "error": err.Error()})
-		}
-	} else {
-		guildMemoryRoot := filepath.Join(s.cfg.App.SessionDir, "guild-memory", state.Key.GuildID, state.Key.ChannelID)
-		if err := agent.AppendToMemoryShard(guildMemoryRoot, memoryPrompt, reply, time.Now()); err != nil {
-			s.audit.Write("error", state.ID, map[string]any{"op": "append_guild_memory_shard", "error": err.Error()})
 		}
 	}
 
@@ -697,7 +708,7 @@ func (s *Service) userPromptFromMessage(message *discordgo.MessageCreate) inboun
 	rawContent := strings.TrimSpace(message.Content)
 	attachments := s.prepareInboundAttachments(message.Message)
 	content := replaceAttachmentURLs(rawContent, attachments)
-	if message.GuildID != "" && s.cfg.SharedGuildSessions() {
+	if s.isSharedConversation(message.GuildID, message.ChannelID) {
 		content = formatSharedChannelPrompt(message, s.application, attachments)
 	} else if strings.TrimSpace(content) == "" && len(attachments) > 0 {
 		content = describeDirectAttachments(attachments)
@@ -719,7 +730,7 @@ func (s *Service) userPromptFromMessage(message *discordgo.MessageCreate) inboun
 }
 
 func (s *Service) sessionKey(guildID string, channelID string, userID string) sessionKey {
-	if guildID != "" && s.cfg.SharedGuildSessions() {
+	if s.isSharedConversation(guildID, channelID) {
 		userID = ""
 	}
 
@@ -728,6 +739,13 @@ func (s *Service) sessionKey(guildID string, channelID string, userID string) se
 		ChannelID: channelID,
 		UserID:    userID,
 	}
+}
+
+func (s *Service) sessionKeyForMessage(message *discordgo.MessageCreate) sessionKey {
+	if message == nil || message.Author == nil {
+		return sessionKey{}
+	}
+	return s.sessionKey(message.GuildID, message.ChannelID, message.Author.ID)
 }
 
 func promptUserID(prompt inboundPrompt, state *sessionState) string {
@@ -1273,6 +1291,19 @@ func (s *Service) respondToInteraction(interaction *discordgo.InteractionCreate,
 	}
 }
 
+func (s *Service) authorizeMessageContext(message *discordgo.MessageCreate) (bool, string) {
+	if message == nil || message.Author == nil {
+		return false, "Missing Discord message context."
+	}
+	if s.isSharedDirectConversation(message.ChannelID) {
+		if s.cfg.Discord.AllowGroupDirectMessages {
+			return true, ""
+		}
+		return false, "Group direct messages are disabled for this Discord connection."
+	}
+	return s.authorizeContext(message.GuildID, message.Author.ID)
+}
+
 func (s *Service) authorizeContext(guildID string, userID string) (bool, string) {
 	if guildID == "" {
 		if s.cfg.DMAllowedForUser(userID) {
@@ -1289,6 +1320,66 @@ func (s *Service) authorizeContext(guildID string, userID string) (bool, string)
 	}
 
 	return false, "This server is not in discord.allowed_guild_ids."
+}
+
+func (s *Service) isSharedConversation(guildID string, channelID string) bool {
+	if strings.TrimSpace(guildID) != "" {
+		return s.cfg.SharedGuildSessions()
+	}
+	return s.isSharedDirectConversation(channelID)
+}
+
+func (s *Service) isSharedDirectConversation(channelID string) bool {
+	if !s.cfg.Discord.AllowGroupDirectMessages {
+		return false
+	}
+	channelType, ok := s.lookupChannelType(channelID)
+	return ok && channelType == discordgo.ChannelTypeGroupDM
+}
+
+func (s *Service) lookupChannelType(channelID string) (discordgo.ChannelType, bool) {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return discordgo.ChannelTypeGuildText, false
+	}
+
+	s.mu.RLock()
+	channelType, ok := s.channelTypes[channelID]
+	resolver := s.channelTypeResolver
+	s.mu.RUnlock()
+	if ok {
+		return channelType, true
+	}
+
+	if resolver != nil {
+		channelType, err := resolver(channelID)
+		if err == nil {
+			s.mu.Lock()
+			s.channelTypes[channelID] = channelType
+			s.mu.Unlock()
+			return channelType, true
+		}
+	}
+
+	if s.discord == nil {
+		return discordgo.ChannelTypeGuildText, false
+	}
+	if state := s.discord.State; state != nil {
+		if channel, err := state.Channel(channelID); err == nil && channel != nil {
+			s.mu.Lock()
+			s.channelTypes[channelID] = channel.Type
+			s.mu.Unlock()
+			return channel.Type, true
+		}
+	}
+	channel, err := s.discord.Channel(channelID)
+	if err != nil || channel == nil {
+		return discordgo.ChannelTypeGuildText, false
+	}
+	s.mu.Lock()
+	s.channelTypes[channelID] = channel.Type
+	s.mu.Unlock()
+	return channel.Type, true
 }
 
 func (s *Service) lookupSession(key sessionKey) *sessionState {
@@ -1313,11 +1404,12 @@ func (s *Service) statusReport(key sessionKey) string {
 	session := s.lookupSession(key)
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
 	worker := s.latestBackgroundTaskForChannel(key.ChannelID)
+	isDirectMessage := !s.isSharedConversation(key.GuildID, key.ChannelID)
 	lines := []string{"## Element Orion Check-In"}
 
 	if session == nil {
 		estimate := s.runner.EstimateContextUsage(nil, agent.ConversationContext{
-			IsDirectMessage: key.GuildID == "",
+			IsDirectMessage: isDirectMessage,
 			GuildID:         key.GuildID,
 			ChannelID:       key.ChannelID,
 			Now:             time.Now(),
@@ -1350,7 +1442,7 @@ func (s *Service) statusReport(key sessionKey) string {
 
 	history, _ := session.snapshotForRun()
 	estimate := s.runner.EstimateContextUsage(history, agent.ConversationContext{
-		IsDirectMessage: key.GuildID == "",
+		IsDirectMessage: isDirectMessage,
 		GuildID:         key.GuildID,
 		ChannelID:       key.ChannelID,
 		Now:             time.Now(),
@@ -1529,8 +1621,8 @@ func (s *Service) runtimeToolHealthLine() string {
 func (s *Service) memoryReport(key sessionKey) string {
 	now := time.Now()
 	memoryRoot := strings.TrimSpace(s.cfg.App.MemoryDir)
-	if key.GuildID != "" && s.cfg.SharedGuildSessions() {
-		memoryRoot = filepath.Join(s.cfg.App.SessionDir, "guild-memory", key.GuildID, key.ChannelID)
+	if sharedRoot := s.sharedMemoryRoot(key); sharedRoot != "" {
+		memoryRoot = sharedRoot
 	}
 
 	info := inspectMemoryRoot(s.cfg, memoryRoot, now)
@@ -1552,6 +1644,16 @@ func (s *Service) memoryReport(key sessionKey) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (s *Service) sharedMemoryRoot(key sessionKey) string {
+	if strings.TrimSpace(key.GuildID) != "" && s.cfg.SharedGuildSessions() {
+		return filepath.Join(s.cfg.App.SessionDir, "guild-memory", key.GuildID, key.ChannelID)
+	}
+	if s.isSharedDirectConversation(key.ChannelID) {
+		return filepath.Join(s.cfg.App.SessionDir, "group-dm-memory", key.ChannelID)
+	}
+	return ""
 }
 
 type memoryReportInfo struct {

@@ -478,6 +478,7 @@ func TestSystemPromptIncludesSharedChannelSilenceGuidance(t *testing.T) {
 	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
 	prompt := runner.systemPrompt(ConversationContext{
 		IsDirectMessage: false,
+		GuildID:         "guild-1",
 		Now:             time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
 	})
 
@@ -495,6 +496,20 @@ func TestSystemPromptIncludesSharedChannelSilenceGuidance(t *testing.T) {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)
 		}
+	}
+}
+
+func TestSystemPromptLabelsSharedGroupDirectMessages(t *testing.T) {
+	workspace := t.TempDir()
+	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDirectMessage: false,
+		ChannelID:       "group-dm-1",
+		Now:             time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	if !strings.Contains(prompt, "Conversation type: shared group direct message") {
+		t.Fatalf("expected prompt to describe a shared group direct message, got %q", prompt)
 	}
 }
 

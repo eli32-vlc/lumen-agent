@@ -237,9 +237,9 @@ func (r *Registry) handleSendDiscordFile(ctx context.Context, payload json.RawMe
 		return "", err
 	}
 
-	botToken := strings.TrimSpace(r.cfg.Discord.BotToken)
-	if botToken == "" {
-		return "", fmt.Errorf("discord.bot_token is not configured")
+	authHeader, err := r.cfg.ResolveDiscordAuthorizationHeader()
+	if err != nil {
+		return "", err
 	}
 
 	file, err := os.Open(path)
@@ -286,7 +286,7 @@ func (r *Registry) handleSendDiscordFile(ctx context.Context, payload json.RawMe
 	if err != nil {
 		return "", fmt.Errorf("create Discord request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bot "+botToken)
+	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 
@@ -415,9 +415,9 @@ func (r *Registry) discordRequest(ctx context.Context, method string, path strin
 }
 
 func (r *Registry) discordRequestWithHeaders(ctx context.Context, method string, path string, body io.Reader, contentType string, headers map[string]string) ([]byte, error) {
-	botToken := strings.TrimSpace(r.cfg.Discord.BotToken)
-	if botToken == "" {
-		return nil, fmt.Errorf("discord.bot_token is not configured")
+	authHeader, err := r.cfg.ResolveDiscordAuthorizationHeader()
+	if err != nil {
+		return nil, err
 	}
 
 	endpoint := strings.TrimRight(r.discordAPIBase, "/") + path
@@ -425,7 +425,7 @@ func (r *Registry) discordRequestWithHeaders(ctx context.Context, method string,
 	if err != nil {
 		return nil, fmt.Errorf("create Discord request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bot "+botToken)
+	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Accept", "application/json")
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)

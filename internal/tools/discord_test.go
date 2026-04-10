@@ -176,6 +176,33 @@ func TestHandleSendDiscordMessageUsesSessionChannelContext(t *testing.T) {
 	}
 }
 
+func TestHandleSendDiscordMessageUsesRawUserTokenAuthorization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if auth := req.Header.Get("Authorization"); auth != "user-token" {
+			t.Fatalf("unexpected authorization header %q", auth)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg-raw","channel_id":"channel-123"}`))
+	}))
+	defer server.Close()
+
+	registry := &Registry{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{
+				TokenMode: "user",
+				UserToken: "user-token",
+			},
+		},
+		discordAPIBase: server.URL,
+		discordClient:  server.Client(),
+	}
+
+	ctx := WithDiscordToolContext(context.Background(), DiscordToolContext{ChannelID: "channel-123"})
+	if _, err := registry.handleSendDiscordMessage(ctx, json.RawMessage(`{"content":"hello discord"}`)); err != nil {
+		t.Fatalf("handleSendDiscordMessage returned error: %v", err)
+	}
+}
+
 func TestHandleSendDiscordMessageOpensAllowlistedDM(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

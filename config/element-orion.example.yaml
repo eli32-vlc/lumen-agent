@@ -104,8 +104,11 @@ skills:
     extra_dirs: []
 
 discord:
+  token_mode: bot
   bot_token: ""
+  user_token: ""
   allow_direct_messages: true
+  allow_group_direct_messages: false
   allowed_guild_ids: []
   allowed_dm_user_ids: []
   allowed_outbound_channel_ids: []

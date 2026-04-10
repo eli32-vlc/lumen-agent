@@ -294,8 +294,10 @@ func (r *Runner) systemPrompt(conversation ConversationContext) string {
 	builder.WriteString(formatPromptUTCTime(conversation.Now))
 	if conversation.IsDirectMessage {
 		builder.WriteString("\n- Conversation type: direct message")
-	} else {
+	} else if strings.TrimSpace(conversation.GuildID) != "" {
 		builder.WriteString("\n- Conversation type: shared guild channel")
+	} else {
+		builder.WriteString("\n- Conversation type: shared group direct message")
 	}
 	if conversation.IsBackgroundTask {
 		builder.WriteString("\n- Execution mode: background task")
@@ -651,13 +653,13 @@ func (r *Runner) workspacePromptSections(conversation ConversationContext) []pro
 	}
 
 	if !conversation.IsDirectMessage {
-		guildMemoryRoot := configuredGuildMemoryRoot(r.cfg, conversation.GuildID, conversation.ChannelID)
-		if section, ok := loadMemoryPromptSection(guildMemoryRoot, "MEMORY.md", "guild-memory/MEMORY.md"); ok {
+		sharedMemoryRoot, sharedMemoryPrefix := configuredSharedConversationMemoryRoot(r.cfg, conversation.GuildID, conversation.ChannelID)
+		if section, ok := loadMemoryPromptSection(sharedMemoryRoot, "MEMORY.md", sharedMemoryPrefix+"/MEMORY.md"); ok {
 			sections = append(sections, section)
 		}
-		for _, fileName := range memoryShardFileNamesForRoot(r.cfg, guildMemoryRoot, conversation.Now) {
-			sectionName := filepath.ToSlash(filepath.Join("guild-memory", fileName))
-			if section, ok := loadMemoryPromptSection(guildMemoryRoot, fileName, sectionName); ok {
+		for _, fileName := range memoryShardFileNamesForRoot(r.cfg, sharedMemoryRoot, conversation.Now) {
+			sectionName := filepath.ToSlash(filepath.Join(sharedMemoryPrefix, fileName))
+			if section, ok := loadMemoryPromptSection(sharedMemoryRoot, fileName, sectionName); ok {
 				sections = append(sections, section)
 			}
 		}
@@ -888,4 +890,16 @@ func configuredGuildMemoryRoot(cfg config.Config, guildID string, channelID stri
 	}
 
 	return filepath.Join(cfg.App.SessionDir, "guild-memory", guildID, channelID)
+}
+
+func configuredSharedConversationMemoryRoot(cfg config.Config, guildID string, channelID string) (string, string) {
+	guildID = strings.TrimSpace(guildID)
+	channelID = strings.TrimSpace(channelID)
+	if guildID != "" {
+		return configuredGuildMemoryRoot(cfg, guildID, channelID), "guild-memory"
+	}
+	if channelID == "" || strings.TrimSpace(cfg.App.SessionDir) == "" {
+		return "", ""
+	}
+	return filepath.Join(cfg.App.SessionDir, "group-dm-memory", channelID), "group-dm-memory"
 }
