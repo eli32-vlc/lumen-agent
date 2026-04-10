@@ -444,7 +444,7 @@ func (s *Service) handleMemoryCommand(interaction *discordgo.InteractionCreate) 
 }
 
 func (s *Service) handleMessageCreate(_ *discordgo.Session, message *discordgo.MessageCreate) {
-	if message == nil || message.Author == nil || message.Author.Bot {
+	if message == nil || message.Author == nil || message.Author.Bot || s.isOwnMessage(message) {
 		return
 	}
 
@@ -523,6 +523,21 @@ func (s *Service) handleMessageCreate(_ *discordgo.Session, message *discordgo.M
 			s.audit.Write("error", session.ID, map[string]any{"op": "send_queue_warning", "error": err.Error()})
 		}
 	}
+}
+
+func (s *Service) isOwnMessage(message *discordgo.MessageCreate) bool {
+	if message == nil || message.Author == nil {
+		return false
+	}
+
+	s.mu.RLock()
+	applicationID := strings.TrimSpace(s.application)
+	s.mu.RUnlock()
+	if applicationID == "" {
+		return false
+	}
+
+	return strings.TrimSpace(message.Author.ID) == applicationID
 }
 
 func (s *Service) resetSession(key sessionKey) (*sessionState, bool, error) {

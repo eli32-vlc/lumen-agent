@@ -72,6 +72,24 @@ func TestAuthorizeContextUsesDMAllowlist(t *testing.T) {
 	}
 }
 
+func TestIsOwnMessageUsesConnectedIdentity(t *testing.T) {
+	service := &Service{
+		application: "self-user",
+	}
+
+	if !service.isOwnMessage(&discordgo.MessageCreate{Message: &discordgo.Message{
+		Author: &discordgo.User{ID: "self-user"},
+	}}) {
+		t.Fatal("expected connected account message to be treated as our own")
+	}
+
+	if service.isOwnMessage(&discordgo.MessageCreate{Message: &discordgo.Message{
+		Author: &discordgo.User{ID: "someone-else"},
+	}}) {
+		t.Fatal("expected another user's message to not be treated as our own")
+	}
+}
+
 func TestUserPromptFromMessageFormatsSharedChannelMetadata(t *testing.T) {
 	service := &Service{
 		cfg: config.Config{
