@@ -1,6 +1,10 @@
 package discordbot
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +20,18 @@ import (
 	"element-orion/internal/config"
 	"element-orion/internal/llm"
 )
+
+func onePixelPNGBytes(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, G: 0, B: 0, A: 255})
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png fixture: %v", err)
+	}
+	return buf.Bytes()
+}
 
 func TestPrepareRunHistoryIsolatesHeartbeatSessions(t *testing.T) {
 	service := &Service{
@@ -236,9 +252,10 @@ func TestUserPromptFromMessageDownloadsAttachmentsAndRewritesURL(t *testing.T) {
 }
 
 func TestUserPromptFromMessageWithVisionEnabledDownloadsAndBuildsImageParts(t *testing.T) {
+	pngBytes := onePixelPNGBytes(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write([]byte("fake-image"))
+		_, _ = w.Write(pngBytes)
 	}))
 	defer server.Close()
 
@@ -282,8 +299,8 @@ func TestUserPromptFromMessageWithVisionEnabledDownloadsAndBuildsImageParts(t *t
 	if prompt.UserParts[1].Type != llm.ContentPartImageURL {
 		t.Fatalf("expected second part to be image_url, got %#v", prompt.UserParts[1])
 	}
-	if prompt.UserParts[1].ImageURL != server.URL+"/image.png" {
-		t.Fatalf("expected image URL part to keep remote URL, got %#v", prompt.UserParts[1])
+	if !strings.HasPrefix(prompt.UserParts[1].ImageURL, "data:image/jpeg;base64,") {
+		t.Fatalf("expected image URL part to be jpeg data URL, got %#v", prompt.UserParts[1])
 	}
 	if _, err := os.Stat(wantPath); err != nil {
 		t.Fatalf("expected downloaded image at %q: %v", wantPath, err)
@@ -291,9 +308,10 @@ func TestUserPromptFromMessageWithVisionEnabledDownloadsAndBuildsImageParts(t *t
 }
 
 func TestUserPromptFromMessageWithoutVisionDownloadsImageButDoesNotBuildParts(t *testing.T) {
+	pngBytes := onePixelPNGBytes(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
-		_, _ = w.Write([]byte("fake-image"))
+		_, _ = w.Write(pngBytes)
 	}))
 	defer server.Close()
 

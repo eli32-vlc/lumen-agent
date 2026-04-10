@@ -1,12 +1,16 @@
 package discordbot
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +22,10 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/webp"
+	_ "image/gif"
+	_ "image/png"
 
 	"element-orion/internal/agent"
 	"element-orion/internal/auditlog"
@@ -110,6 +118,7 @@ type downloadedAttachment struct {
 	ContentType string
 	URL         string
 	LocalPath   string
+	ModelURL    string
 	IsImage     bool
 }
 
@@ -838,12 +847,13 @@ func buildUserMessageParts(content string, attachments []downloadedAttachment, v
 		})
 	}
 	for _, attachment := range attachments {
-		if !attachment.IsImage || strings.TrimSpace(attachment.URL) == "" {
+		imageURL := strings.TrimSpace(attachment.ModelURL)
+		if !attachment.IsImage || imageURL == "" {
 			continue
 		}
 		parts = append(parts, llm.ContentPart{
 			Type:     llm.ContentPartImageURL,
-			ImageURL: strings.TrimSpace(attachment.URL),
+			ImageURL: imageURL,
 		})
 	}
 	if len(parts) == 0 {
@@ -883,6 +893,22 @@ func (s *Service) prepareInboundAttachments(message *discordgo.Message) []downlo
 				}
 			} else {
 				item.LocalPath = localPath
+				if item.IsImage && s.cfg.LLM.VisionEnabled {
+					modelURL, err := modelImageURLFromPath(localPath)
+					if err != nil {
+						if s.audit != nil {
+							s.audit.Write("error", "", map[string]any{
+								"op":         "prepare_model_image",
+								"message_id": message.ID,
+								"channel_id": message.ChannelID,
+								"attachment": item.Filename,
+								"error":      err.Error(),
+							})
+						}
+					} else {
+						item.ModelURL = modelURL
+					}
+				}
 			}
 		}
 		result = append(result, item)
@@ -1018,6 +1044,28 @@ func (s *Service) downloadIncomingAttachment(message *discordgo.Message, attachm
 		return "", fmt.Errorf("write attachment file: %w", err)
 	}
 	return targetPath, nil
+}
+
+func modelImageURLFromPath(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read image file: %w", err)
+	}
+	mimeType := strings.ToLower(strings.TrimSpace(http.DetectContentType(data)))
+	if mimeType == "image/jpeg" {
+		return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(data), nil
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("decode image for jpeg conversion: %w", err)
+	}
+
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, img, &jpeg.Options{Quality: 90}); err != nil {
+		return "", fmt.Errorf("encode jpeg image: %w", err)
+	}
+	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes()), nil
 }
 
 func sharedChannelAuthorName(message *discordgo.MessageCreate) string {

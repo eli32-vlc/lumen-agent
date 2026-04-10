@@ -310,6 +310,7 @@ Image behavior is slightly stronger than the general attachment rule:
 
 - image attachments are always downloaded into `incoming_attachments_dir`
 - if `llm.vision_enabled` is `true`, those same images are also sent to the model as image input
+- non-JPEG images are converted to JPEG before they are sent to the model for compatibility
 - if `llm.vision_enabled` is `false`, images stay tool-only and are not forwarded as multimodal input
 
 #### Attachment flow
