@@ -280,6 +280,7 @@ llm:
   base_url: https://api.openai.com/v1
   api_key_env: OPENAI_API_KEY
   model: gpt-5.4
+  vision_enabled: false
   reasoning_effort: medium
   temperature: 0.4
   max_tokens: 3200
@@ -291,6 +292,7 @@ llm:
 What matters here:
 
 - `model` decides the base brain
+- `vision_enabled` controls whether image attachments are also forwarded as multimodal input
 - `max_tokens` is reply budget
 - `context_window_tokens` is the total assumed window
 - `inject_message_timestamps` gives the model time grounding
@@ -498,6 +500,7 @@ llm:
   base_url: https://api.openai.com/v1
   api_key_env: OPENAI_API_KEY
   model: gpt-5.4
+  vision_enabled: false
   reasoning_effort: medium
   temperature: 0.4
   max_tokens: 3200

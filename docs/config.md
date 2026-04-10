@@ -114,8 +114,11 @@ Key fields:
 - `model`
   Main model used for normal chat unless overridden
 
+- `vision_enabled`
+  If `true`, image attachments are sent to the model as multimodal input as well as downloaded for tool use
+
 - `reasoning_effort`
-  Passed through when the provider supports it
+  Passed through when the provider supports it. If set to `none`, Element Orion omits the provider reasoning field entirely.
 
 - `temperature`
   Normal completion temperature
@@ -156,6 +159,7 @@ Important behavior notes:
 - `max_tokens` is reply budget, so raising it lowers input budget
 - `inject_message_timestamps` adds time grounding to model-visible messages, but it can also encourage the model to echo timestamps if the prompt is sloppy
 - `reasoning_effort` only matters on providers that support it
+- `vision_enabled` is the switch that turns image attachments into multimodal model input
 - custom `headers` can be useful for provider gateways or compatibility layers
 
 ### `tools`
@@ -302,11 +306,17 @@ Key fields:
 
 If `download_incoming_attachments` is enabled, uploaded files are written to disk and prompt text is rewritten to local paths where possible.
 
+Image behavior is slightly stronger than the general attachment rule:
+
+- image attachments are always downloaded into `incoming_attachments_dir`
+- if `llm.vision_enabled` is `true`, those same images are also sent to the model as image input
+- if `llm.vision_enabled` is `false`, images stay tool-only and are not forwarded as multimodal input
+
 #### Attachment flow
 
 This is the fix for the "uploaded file is only a link" problem.
 
-With download enabled:
+With download enabled for general attachments, and always for images:
 
 1. user uploads a file
 2. Element Orion downloads it into `incoming_attachments_dir`

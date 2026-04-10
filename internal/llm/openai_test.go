@@ -72,6 +72,52 @@ func TestOpenAIClientUsesChatCompletionsEndpoint(t *testing.T) {
 	}
 }
 
+func TestOpenAIClientOmitsReasoningEffortWhenSetToNone(t *testing.T) {
+	client := &Client{impl: &chatCompletionsClient{httpJSONClient: &httpJSONClient{
+		endpoint: "https://api.example.test/chat/completions",
+		apiKey:   "test-key",
+		headers:  map[string]string{},
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if _, ok := payload["reasoning_effort"]; ok {
+				t.Fatalf("expected reasoning_effort to be omitted, got %#v", payload["reasoning_effort"])
+			}
+
+			body, err := json.Marshal(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "hello",
+					},
+				}},
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(body)),
+			}, nil
+		})},
+	}}}
+
+	_, err := client.Chat(context.Background(), Request{
+		Model:           "gpt-4.1-mini",
+		Messages:        []Message{{Role: "user", Content: "hi"}},
+		Temperature:     0.2,
+		MaxTokens:       32,
+		ReasoningEffort: "none",
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+}
+
 func TestCodexClientUsesResponsesEndpointAndPreservesToolLoopState(t *testing.T) {
 	client := &Client{impl: &responsesClient{httpJSONClient: &httpJSONClient{
 		endpoint: "https://api.example.test/responses",
@@ -336,5 +382,54 @@ func TestCodexClientRetriesWithStreamingWhenProviderRequiresIt(t *testing.T) {
 	}
 	if message.Content != "streamed ok" {
 		t.Fatalf("unexpected content %q", message.Content)
+	}
+}
+
+func TestCodexClientOmitsReasoningPayloadWhenSetToNone(t *testing.T) {
+	client := &Client{impl: &responsesClient{httpJSONClient: &httpJSONClient{
+		endpoint: "https://api.example.test/responses",
+		apiKey:   "test-key",
+		headers:  map[string]string{},
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if _, ok := payload["reasoning"]; ok {
+				t.Fatalf("expected reasoning payload to be omitted, got %#v", payload["reasoning"])
+			}
+
+			body, err := json.Marshal(map[string]any{
+				"output": []map[string]any{
+					{
+						"type": "message",
+						"role": "assistant",
+						"content": []map[string]any{{
+							"type": "output_text",
+							"text": "ok",
+						}},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(body)),
+			}, nil
+		})},
+	}}}
+
+	_, err := client.Chat(context.Background(), Request{
+		Model:           "gpt-5.4",
+		Messages:        []Message{{Role: "user", Content: "hi"}},
+		MaxTokens:       32,
+		ReasoningEffort: "none",
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
 	}
 }

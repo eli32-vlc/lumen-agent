@@ -735,7 +735,7 @@ func (s *Service) userPromptFromMessage(message *discordgo.MessageCreate) inboun
 		Kind:         promptKindUser,
 		Content:      content,
 		RawContent:   rawContent,
-		UserParts:    buildUserMessageParts(content, attachments),
+		UserParts:    buildUserMessageParts(content, attachments, s.cfg.LLM.VisionEnabled),
 		AuthorID:     strings.TrimSpace(message.Author.ID),
 		GuildID:      message.GuildID,
 		ChannelID:    message.ChannelID,
@@ -814,8 +814,19 @@ func formatSharedChannelPrompt(message *discordgo.MessageCreate, botUserID strin
 	return builder.String()
 }
 
-func buildUserMessageParts(content string, attachments []downloadedAttachment) []llm.ContentPart {
-	if len(attachments) == 0 {
+func buildUserMessageParts(content string, attachments []downloadedAttachment, visionEnabled bool) []llm.ContentPart {
+	if !visionEnabled || len(attachments) == 0 {
+		return nil
+	}
+
+	hasImage := false
+	for _, attachment := range attachments {
+		if attachment.IsImage && strings.TrimSpace(attachment.URL) != "" {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
 		return nil
 	}
 
@@ -858,7 +869,7 @@ func (s *Service) prepareInboundAttachments(message *discordgo.Message) []downlo
 			URL:         strings.TrimSpace(attachment.URL),
 			IsImage:     isImageAttachment(attachment),
 		}
-		if s.cfg.Discord.DownloadIncomingAttachments {
+		if s.shouldDownloadAttachment(item) {
 			localPath, err := s.downloadIncomingAttachment(message, attachment)
 			if err != nil {
 				if s.audit != nil {
@@ -877,6 +888,13 @@ func (s *Service) prepareInboundAttachments(message *discordgo.Message) []downlo
 		result = append(result, item)
 	}
 	return result
+}
+
+func (s *Service) shouldDownloadAttachment(attachment downloadedAttachment) bool {
+	if attachment.IsImage {
+		return true
+	}
+	return s.cfg.Discord.DownloadIncomingAttachments
 }
 
 func messageHasAttachments(message *discordgo.Message) bool {

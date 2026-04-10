@@ -208,7 +208,7 @@ func (c *chatCompletionsClient) Chat(ctx context.Context, req Request) (Message,
 	if req.MaxTokens > 0 {
 		payload["max_tokens"] = req.MaxTokens
 	}
-	if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
+	if effort := normalizedReasoningEffort(req.ReasoningEffort); effort != "" {
 		payload["reasoning_effort"] = effort
 	}
 
@@ -255,7 +255,7 @@ func (c *responsesClient) buildPayload(req Request) map[string]any {
 	if req.MaxTokens > 0 {
 		payload["max_output_tokens"] = req.MaxTokens
 	}
-	if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
+	if effort := normalizedReasoningEffort(req.ReasoningEffort); effort != "" {
 		payload["reasoning"] = map[string]any{
 			"effort": effort,
 		}
@@ -544,6 +544,14 @@ func clonePayload(payload map[string]any) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func normalizedReasoningEffort(effort string) string {
+	effort = strings.TrimSpace(strings.ToLower(effort))
+	if effort == "" || effort == "none" {
+		return ""
+	}
+	return effort
 }
 
 func shouldRetryResponsesAsStream(err error) bool {

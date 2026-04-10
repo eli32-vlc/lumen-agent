@@ -351,6 +351,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Model: " + model,
 		"Provider: " + fallbackPromptValue(r.cfg.LLM.APIType, "unknown"),
 		"Provider base URL: " + sanitizePromptURL(r.cfg.LLM.BaseURL),
+		"Vision input: " + promptBoolStatus(r.cfg.LLM.VisionEnabled),
 		"Reasoning effort: " + fallbackPromptValue(r.cfg.LLM.ReasoningEffort, "default"),
 		"Temperature: " + fmt.Sprintf("%.2f", r.cfg.LLM.Temperature),
 		"Max completion tokens: " + strconv.Itoa(r.cfg.LLM.MaxTokens),
@@ -432,10 +433,11 @@ func promptHistoryCompactionSummary(cfg config.Config) string {
 }
 
 func promptAttachmentSummary(cfg config.Config) string {
+	path := fallbackPromptValue(cfg.Discord.IncomingAttachmentsDir, "unset")
 	if !cfg.Discord.DownloadIncomingAttachments {
-		return "disabled"
+		return "images only -> " + path + " (other attachments disabled)"
 	}
-	return "enabled -> " + fallbackPromptValue(cfg.Discord.IncomingAttachmentsDir, "unset")
+	return "all attachments -> " + path
 }
 
 func promptBackgroundTaskSummary(cfg config.Config) string {

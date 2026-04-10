@@ -59,6 +59,7 @@ type LLMConfig struct {
 	APIKey                  string            `yaml:"api_key"`
 	APIKeyEnv               string            `yaml:"api_key_env"`
 	Model                   string            `yaml:"model"`
+	VisionEnabled           bool              `yaml:"vision_enabled"`
 	ReasoningEffort         string            `yaml:"reasoning_effort"`
 	Temperature             float64           `yaml:"temperature"`
 	MaxTokens               int               `yaml:"max_tokens"`

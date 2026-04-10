@@ -235,6 +235,107 @@ func TestUserPromptFromMessageDownloadsAttachmentsAndRewritesURL(t *testing.T) {
 	}
 }
 
+func TestUserPromptFromMessageWithVisionEnabledDownloadsAndBuildsImageParts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("fake-image"))
+	}))
+	defer server.Close()
+
+	attachmentsDir := filepath.Join(t.TempDir(), "incoming")
+	service := &Service{
+		cfg: config.Config{
+			LLM: config.LLMConfig{
+				VisionEnabled: true,
+			},
+			Discord: config.DiscordConfig{
+				DownloadIncomingAttachments: false,
+				IncomingAttachmentsDir:      attachmentsDir,
+			},
+		},
+	}
+
+	message := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        "message-vision",
+		ChannelID: "channel-1",
+		Content:   "what is in " + server.URL + "/image.png",
+		Author:    &discordgo.User{ID: "user-1", Username: "jack"},
+		Attachments: []*discordgo.MessageAttachment{{
+			ID:          "att-vision",
+			Filename:    "image.png",
+			URL:         server.URL + "/image.png",
+			ContentType: "image/png",
+		}},
+	}}
+
+	prompt := service.userPromptFromMessage(message)
+	wantPath := filepath.Join(attachmentsDir, "channel-1", "message-vision", "image.png")
+	if strings.Contains(prompt.Content, server.URL+"/image.png") {
+		t.Fatalf("expected prompt content to replace the remote image URL, got %q", prompt.Content)
+	}
+	if !strings.Contains(prompt.Content, wantPath) {
+		t.Fatalf("expected prompt content to reference downloaded image path %q, got %q", wantPath, prompt.Content)
+	}
+	if len(prompt.UserParts) != 2 {
+		t.Fatalf("expected text + image multimodal parts, got %#v", prompt.UserParts)
+	}
+	if prompt.UserParts[1].Type != llm.ContentPartImageURL {
+		t.Fatalf("expected second part to be image_url, got %#v", prompt.UserParts[1])
+	}
+	if prompt.UserParts[1].ImageURL != server.URL+"/image.png" {
+		t.Fatalf("expected image URL part to keep remote URL, got %#v", prompt.UserParts[1])
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected downloaded image at %q: %v", wantPath, err)
+	}
+}
+
+func TestUserPromptFromMessageWithoutVisionDownloadsImageButDoesNotBuildParts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("fake-image"))
+	}))
+	defer server.Close()
+
+	attachmentsDir := filepath.Join(t.TempDir(), "incoming")
+	service := &Service{
+		cfg: config.Config{
+			LLM: config.LLMConfig{
+				VisionEnabled: false,
+			},
+			Discord: config.DiscordConfig{
+				DownloadIncomingAttachments: false,
+				IncomingAttachmentsDir:      attachmentsDir,
+			},
+		},
+	}
+
+	message := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID:        "message-no-vision",
+		ChannelID: "channel-1",
+		Content:   "check " + server.URL + "/image.png with tools",
+		Author:    &discordgo.User{ID: "user-1", Username: "jack"},
+		Attachments: []*discordgo.MessageAttachment{{
+			ID:          "att-no-vision",
+			Filename:    "image.png",
+			URL:         server.URL + "/image.png",
+			ContentType: "image/png",
+		}},
+	}}
+
+	prompt := service.userPromptFromMessage(message)
+	wantPath := filepath.Join(attachmentsDir, "channel-1", "message-no-vision", "image.png")
+	if !strings.Contains(prompt.Content, wantPath) {
+		t.Fatalf("expected prompt content to reference downloaded image path %q, got %q", wantPath, prompt.Content)
+	}
+	if len(prompt.UserParts) != 0 {
+		t.Fatalf("expected no multimodal parts when vision is disabled, got %#v", prompt.UserParts)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("expected downloaded image at %q: %v", wantPath, err)
+	}
+}
+
 func TestTurnAssistantReplySupportsNoReplyToken(t *testing.T) {
 	history := []llm.Message{
 		{Role: "assistant", Content: "older reply"},
