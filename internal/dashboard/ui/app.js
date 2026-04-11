@@ -324,10 +324,10 @@
 
     const cards = [
       {
-        label: "Recent Tokens",
-        value: formatNumber(summary.recent_tokens || 0),
-        meta: `${formatNumber(summary.model_calls || 0)} model calls`,
-        trend: summarizeTrend(modelEvents),
+        label: "Total Tokens",
+        value: formatNumber(summary.total_tokens || 0),
+        meta: `${formatNumber(summary.model_calls || 0)} model calls in loaded logs`,
+        trend: "cumulative across dashboard log data",
       },
       {
         label: "Tool Success",

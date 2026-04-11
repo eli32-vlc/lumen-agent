@@ -44,7 +44,7 @@ type stateResponse struct {
 }
 
 type summaryState struct {
-	RecentTokens     int `json:"recent_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 	ModelCalls       int `json:"model_calls"`
 	RecentToolCalls  int `json:"recent_tool_calls"`
 	ToolFailures     int `json:"tool_failures"`
@@ -306,7 +306,7 @@ func BuildState(entries []auditlog.Entry, now time.Time, activityWindow time.Dur
 		switch entry.Kind {
 		case "model_done", "background_model_done":
 			summary.ModelCalls++
-			summary.RecentTokens += int(int64FromMap(entry.Data, "tokens"))
+			summary.TotalTokens += int(int64FromMap(entry.Data, "tokens"))
 		case "tool_done", "background_tool_done":
 			summary.RecentToolCalls++
 			if success, ok := boolFromMap(entry.Data, "success"); ok && !success {

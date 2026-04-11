@@ -71,8 +71,8 @@ func TestBuildStateMarksActiveNodesAndEdges(t *testing.T) {
 	if state.ToolCalls[0].Success == nil || !*state.ToolCalls[0].Success {
 		t.Fatal("expected successful tool call")
 	}
-	if state.Summary.RecentTokens != 321 {
-		t.Fatalf("expected 321 recent tokens, got %d", state.Summary.RecentTokens)
+	if state.Summary.TotalTokens != 321 {
+		t.Fatalf("expected 321 total tokens, got %d", state.Summary.TotalTokens)
 	}
 	if state.Summary.ModelCalls != 1 {
 		t.Fatalf("expected 1 model call, got %d", state.Summary.ModelCalls)
@@ -134,6 +134,9 @@ func TestBuildStateCountsFailuresAndBackgroundEvents(t *testing.T) {
 	}
 	if state.Summary.BackgroundEvents != 2 {
 		t.Fatalf("expected 2 background events, got %d", state.Summary.BackgroundEvents)
+	}
+	if state.Summary.TotalTokens != 120 {
+		t.Fatalf("expected 120 total tokens, got %d", state.Summary.TotalTokens)
 	}
 }
 
