@@ -1285,7 +1285,7 @@ func (s *Service) sendReply(prompt inboundPrompt, content string) error {
 	}
 
 	var reference *discordgo.MessageReference
-	if s.cfg.Discord.ReplyToMessage && prompt.MessageID != "" {
+	if s.shouldReplyToPrompt(prompt) {
 		reference = &discordgo.MessageReference{
 			MessageID: prompt.MessageID,
 			ChannelID: prompt.ChannelID,
@@ -1312,6 +1312,16 @@ func (s *Service) sendReply(prompt inboundPrompt, content string) error {
 	s.recordOutboundHeartbeatState(prompt, parts)
 
 	return nil
+}
+
+func (s *Service) shouldReplyToPrompt(prompt inboundPrompt) bool {
+	if strings.TrimSpace(prompt.MessageID) == "" {
+		return false
+	}
+	if s.cfg.Discord.ReplyToMessage {
+		return true
+	}
+	return !s.cfg.DiscordUsesBotToken()
 }
 
 func randomChunkPause() time.Duration {

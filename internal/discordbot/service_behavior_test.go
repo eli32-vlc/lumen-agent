@@ -106,6 +106,36 @@ func TestIsOwnMessageUsesConnectedIdentity(t *testing.T) {
 	}
 }
 
+func TestShouldReplyToPromptInUserModeEvenWhenConfigFlagIsOff(t *testing.T) {
+	service := &Service{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{
+				TokenMode:      "user",
+				ReplyToMessage: false,
+			},
+		},
+	}
+
+	if !service.shouldReplyToPrompt(inboundPrompt{MessageID: "msg-1"}) {
+		t.Fatal("expected user mode replies to reference the triggering message")
+	}
+}
+
+func TestShouldReplyToPromptRespectsBotModeFlag(t *testing.T) {
+	service := &Service{
+		cfg: config.Config{
+			Discord: config.DiscordConfig{
+				TokenMode:      "bot",
+				ReplyToMessage: false,
+			},
+		},
+	}
+
+	if service.shouldReplyToPrompt(inboundPrompt{MessageID: "msg-1"}) {
+		t.Fatal("expected bot mode to keep reply references disabled when config flag is off")
+	}
+}
+
 func TestUserPromptFromMessageFormatsSharedChannelMetadata(t *testing.T) {
 	service := &Service{
 		cfg: config.Config{
