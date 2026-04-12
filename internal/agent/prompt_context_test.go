@@ -561,6 +561,7 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		LLM: config.LLMConfig{
 			APIType:                 "codex",
 			BaseURL:                 "https://api.example.test/v1",
+			APIKeyEnv:               "OPENAI_API_KEY",
 			Model:                   "gpt-5.4",
 			ReasoningEffort:         "medium",
 			Temperature:             0.4,
@@ -569,14 +570,30 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 			InjectMessageTimestamps: true,
 			Timeout:                 "90s",
 			RequestMaxAttempts:      4,
+			RetryInitialBackoff:     "1s",
+			RetryMaxBackoff:         "20s",
+			Headers: map[string]string{
+				"X-Test-Header": "present",
+			},
 		},
 		Tools: config.ToolsConfig{
 			ExecShell:             "/bin/bash",
 			ExecTimeout:           "30s",
+			MaxFileBytes:          16384,
+			MaxSearchResults:      25,
 			MaxCommandOutputBytes: 8192,
+			AllowedCommands:       []string{"git", "go", "rg"},
+		},
+		Dashboard: config.DashboardConfig{
+			Enabled:    true,
+			ListenAddr: "127.0.0.1:4123",
+			Path:       "/dashboard",
 		},
 		Discord: config.DiscordConfig{
 			AllowDirectMessages:         true,
+			AllowGroupDirectMessages:    true,
+			AllowedGuildIDs:             []string{"guild-1", "guild-2"},
+			AllowedOutboundChannelIDs:   []string{"channel-a", "channel-b", "channel-c"},
 			GuildSessionScope:           "channel",
 			ReplyToMessage:              true,
 			DownloadIncomingAttachments: true,
@@ -618,6 +635,14 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 			Enabled: true,
 			Path:    "/event",
 		},
+		Skills: config.SkillsConfig{
+			Enabled: true,
+			Load: config.SkillsLoadConfig{
+				BundledDir: filepath.Join(workspace, "skills", "bundled"),
+				UserDir:    filepath.Join(workspace, ".skills"),
+				ExtraDirs:  []string{filepath.Join(workspace, "custom-skills")},
+			},
+		},
 		MCP: config.MCPConfig{
 			Servers: []config.MCPServerConfig{
 				{Name: "browser", Enabled: true},
@@ -626,6 +651,13 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		},
 	}
 	cfg.SetSourcePath(filepath.Join(workspace, "config", "lumen.yaml"))
+	writeTestFile(t, cfg.LogDir(), "2026-03-12.ndjson", strings.Join([]string{
+		`{"time":"2026-03-12T15:01:00Z","kind":"turn_start","session_id":"sess-1","data":{"channel_id":"channel-1"}}`,
+		`{"time":"2026-03-12T15:01:02Z","kind":"model_done","session_id":"sess-1","data":{"duration_ms":842,"tokens":611}}`,
+		`{"time":"2026-03-12T15:01:03Z","kind":"tool_done","session_id":"sess-1","data":{"tool":"read_file","duration_ms":18,"success":true}}`,
+		`{"time":"2026-03-12T15:01:04Z","kind":"assistant_reply","session_id":"sess-1","data":{"length":128}}`,
+		`{"time":"2026-03-12T15:01:05Z","kind":"error","session_id":"sess-1","data":{"op":"send_reply","error":"discord timeout"}}`,
+	}, "\n"))
 	runner := &Runner{cfg: cfg}
 	prompt := runner.systemPrompt(ConversationContext{
 		ModelOverride: "gpt-5.5-preview",
@@ -638,12 +670,16 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"Model: gpt-5.5-preview",
 		"Provider: codex",
 		"Provider base URL: https://api.example.test/v1",
+		"API key source: env:OPENAI_API_KEY",
 		"Vision input: disabled",
 		"Temperature: 0.40",
 		"Max completion tokens: 2048",
 		"Context window tokens: 8192",
 		"LLM timeout: 90s",
 		"Request max attempts: 4",
+		"Retry initial backoff: 1s",
+		"Retry max backoff: 20s",
+		"Custom request headers: 1",
 		"Workspace root: " + workspace,
 		"Session dir: " + sessionDir,
 		"Memory dir: " + memoryDir,
@@ -654,10 +690,20 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"Config file: " + filepath.Join(workspace, "config", "lumen.yaml"),
 		"History compaction: enabled (trigger=9000, target=5000, preserve_recent=10)",
 		"Message timestamps: enabled",
+		"Skills enabled: enabled",
+		"Skill roots: bundled=" + filepath.Join(workspace, "skills", "bundled") + ", user=" + filepath.Join(workspace, ".skills") + ", extra=" + filepath.Join(workspace, "custom-skills"),
 		"Exec shell: /bin/bash",
 		"Exec timeout: 30s",
+		"Max file read bytes: 16384",
+		"Max search results: 25",
 		"Max command output bytes: 8192",
+		"Allowed exec commands: 3 allowlisted",
+		"Dashboard: enabled (127.0.0.1:4123, path=/dashboard)",
+		"Log dir: " + cfg.LogDir(),
 		"Discord direct messages: enabled",
+		"Discord group direct messages: enabled",
+		"Discord allowed guilds: 2",
+		"Discord allowed outbound channels: 3",
 		"Discord guild session scope: channel",
 		"Discord reply-to-message: enabled",
 		"Incoming attachment downloads: all attachments -> " + filepath.Join(sessionDir, "incoming-attachments"),
@@ -677,6 +723,15 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"Event webhook: enabled (/event)",
 		"Sandboxing: enabled, provider=nspawn, release=stable, auto_cleanup=enabled, sudo",
 		"Enabled MCP servers: browser",
+		"Configured MCP server count: 2",
+		"Last observed turn start: 2026-03-12 15:01:00 UTC",
+		"Last observed model latency: 842 ms",
+		"Last observed model output tokens: 611",
+		"Last observed tool call: read_file",
+		"Last observed tool latency: 18 ms",
+		"Last observed tool success: success",
+		"Last observed assistant reply: 128 chars",
+		"Last observed runtime error: send_reply: discord timeout",
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)

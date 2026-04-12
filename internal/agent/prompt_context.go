@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"element-orion/internal/auditlog"
 	"element-orion/internal/config"
 	"element-orion/internal/heartbeatstate"
 	"element-orion/internal/llm"
@@ -351,6 +353,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Model: " + model,
 		"Provider: " + fallbackPromptValue(r.cfg.LLM.APIType, "unknown"),
 		"Provider base URL: " + sanitizePromptURL(r.cfg.LLM.BaseURL),
+		"API key source: " + promptAPIKeySource(r.cfg),
 		"Vision input: " + promptBoolStatus(r.cfg.LLM.VisionEnabled),
 		"Reasoning effort: " + fallbackPromptValue(r.cfg.LLM.ReasoningEffort, "default"),
 		"Temperature: " + fmt.Sprintf("%.2f", r.cfg.LLM.Temperature),
@@ -358,6 +361,9 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Context window tokens: " + strconv.Itoa(r.cfg.LLM.ContextWindowTokens),
 		"LLM timeout: " + fallbackPromptValue(r.cfg.LLM.Timeout, "default"),
 		"Request max attempts: " + strconv.Itoa(r.cfg.LLM.RequestMaxAttempts),
+		"Retry initial backoff: " + fallbackPromptValue(r.cfg.LLM.RetryInitialBackoff, "default"),
+		"Retry max backoff: " + fallbackPromptValue(r.cfg.LLM.RetryMaxBackoff, "default"),
+		"Custom request headers: " + strconv.Itoa(len(r.cfg.LLM.Headers)),
 		"Host: " + hostName,
 		"Runtime OS/arch: " + runtime.GOOS + "/" + runtime.GOARCH,
 		"Process ID: " + strconv.Itoa(os.Getpid()),
@@ -372,10 +378,20 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Max tool calls per turn: " + strconv.Itoa(r.cfg.App.MaxToolCallsPerTurn),
 		"History compaction: " + promptHistoryCompactionSummary(r.cfg),
 		"Message timestamps: " + promptBoolStatus(r.cfg.LLM.InjectMessageTimestamps),
+		"Skills enabled: " + promptBoolStatus(r.cfg.Skills.Enabled),
+		"Skill roots: " + promptSkillRootsSummary(r.cfg),
 		"Exec shell: " + fallbackPromptValue(r.cfg.Tools.ExecShell, "unset"),
 		"Exec timeout: " + fallbackPromptValue(r.cfg.Tools.ExecTimeout, "default"),
+		"Max file read bytes: " + strconv.FormatInt(r.cfg.Tools.MaxFileBytes, 10),
+		"Max search results: " + strconv.Itoa(r.cfg.Tools.MaxSearchResults),
 		"Max command output bytes: " + strconv.Itoa(r.cfg.Tools.MaxCommandOutputBytes),
+		"Allowed exec commands: " + promptAllowedCommandsSummary(r.cfg),
+		"Dashboard: " + promptDashboardSummary(r.cfg),
+		"Log dir: " + fallbackPromptValue(r.cfg.LogDir(), "unset"),
 		"Discord direct messages: " + promptBoolStatus(r.cfg.Discord.AllowDirectMessages),
+		"Discord group direct messages: " + promptBoolStatus(r.cfg.Discord.AllowGroupDirectMessages),
+		"Discord allowed guilds: " + strconv.Itoa(len(r.cfg.Discord.AllowedGuildIDs)),
+		"Discord allowed outbound channels: " + strconv.Itoa(len(r.cfg.Discord.AllowedOutboundChannelIDs)),
 		"Discord guild session scope: " + fallbackPromptValue(r.cfg.Discord.GuildSessionScope, "channel"),
 		"Discord reply-to-message: " + promptBoolStatus(r.cfg.Discord.ReplyToMessage),
 		"Incoming attachment downloads: " + promptAttachmentSummary(r.cfg),
@@ -401,8 +417,12 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 	if mcpSummary != "" {
 		lines = append(lines, "Enabled MCP servers: "+mcpSummary)
 	}
+	lines = append(lines, "Configured MCP server count: "+strconv.Itoa(len(r.cfg.MCP.Servers)))
 	if heartbeatLines := r.heartbeatStatePromptLines(); len(heartbeatLines) > 0 {
 		lines = append(lines, heartbeatLines...)
+	}
+	if auditLines := promptRecentAuditLines(r.cfg); len(auditLines) > 0 {
+		lines = append(lines, auditLines...)
 	}
 
 	return lines
@@ -432,12 +452,60 @@ func promptHistoryCompactionSummary(cfg config.Config) string {
 	)
 }
 
+func promptAPIKeySource(cfg config.Config) string {
+	switch {
+	case strings.TrimSpace(cfg.LLM.APIKey) != "":
+		return "inline config"
+	case strings.TrimSpace(cfg.LLM.APIKeyEnv) != "":
+		return "env:" + strings.TrimSpace(cfg.LLM.APIKeyEnv)
+	default:
+		return "unset"
+	}
+}
+
 func promptAttachmentSummary(cfg config.Config) string {
 	path := fallbackPromptValue(cfg.Discord.IncomingAttachmentsDir, "unset")
 	if !cfg.Discord.DownloadIncomingAttachments {
 		return "images only -> " + path + " (other attachments disabled)"
 	}
 	return "all attachments -> " + path
+}
+
+func promptSkillRootsSummary(cfg config.Config) string {
+	roots := []string{}
+	if value := strings.TrimSpace(cfg.Skills.Load.BundledDir); value != "" {
+		roots = append(roots, "bundled="+value)
+	}
+	if value := strings.TrimSpace(cfg.Skills.Load.UserDir); value != "" {
+		roots = append(roots, "user="+value)
+	}
+	for _, dir := range cfg.Skills.Load.ExtraDirs {
+		if value := strings.TrimSpace(dir); value != "" {
+			roots = append(roots, "extra="+value)
+		}
+	}
+	if len(roots) == 0 {
+		return "default discovery only"
+	}
+	return strings.Join(roots, ", ")
+}
+
+func promptAllowedCommandsSummary(cfg config.Config) string {
+	if len(cfg.Tools.AllowedCommands) == 0 {
+		return "all shell commands allowed"
+	}
+	return strconv.Itoa(len(cfg.Tools.AllowedCommands)) + " allowlisted"
+}
+
+func promptDashboardSummary(cfg config.Config) string {
+	if !cfg.Dashboard.Enabled {
+		return "disabled"
+	}
+	path := strings.TrimSpace(cfg.Dashboard.Path)
+	if path == "" {
+		path = "/"
+	}
+	return "enabled (" + fallbackPromptValue(cfg.Dashboard.ListenAddr, "default listen addr") + ", path=" + path + ")"
 }
 
 func promptBackgroundTaskSummary(cfg config.Config) string {
@@ -517,6 +585,221 @@ func promptSandboxSummary(cfg config.Config) string {
 		parts = append(parts, "sudo")
 	}
 	return strings.Join(parts, ", ")
+}
+
+func promptRecentAuditLines(cfg config.Config) []string {
+	entries, err := readRecentAuditEntries(cfg.LogDir(), 256)
+	if err != nil {
+		return []string{"Recent runtime telemetry: unavailable (" + err.Error() + ")"}
+	}
+	if len(entries) == 0 {
+		return []string{"Recent runtime telemetry: unavailable (no audit events found)"}
+	}
+
+	var (
+		lastTurnTime             string
+		lastModelLatency         string
+		lastModelTokens          string
+		lastToolName             string
+		lastToolLatency          string
+		lastToolSuccess          string
+		lastAssistantReplyLength string
+		lastRuntimeError         string
+	)
+
+	for _, entry := range entries {
+		switch entry.Kind {
+		case "turn_start":
+			if lastTurnTime == "" {
+				lastTurnTime = formatAuditEntryTime(entry.Time)
+			}
+		case "model_done", "background_model_done":
+			if lastModelLatency == "" {
+				lastModelLatency = formatAuditDuration(entry.Data["duration_ms"])
+				lastModelTokens = formatAuditInt(entry.Data["tokens"])
+			}
+		case "tool_done", "background_tool_done":
+			if lastToolName == "" {
+				lastToolName = fallbackPromptAny(entry.Data["tool"], "unknown")
+				lastToolLatency = formatAuditDuration(entry.Data["duration_ms"])
+				lastToolSuccess = formatAuditBool(entry.Data["success"])
+			}
+		case "assistant_reply", "background_assistant":
+			if lastAssistantReplyLength == "" {
+				lastAssistantReplyLength = formatAssistantReplySummary(entry.Data)
+			}
+		case "error":
+			if lastRuntimeError == "" {
+				lastRuntimeError = formatAuditError(entry.Data)
+			}
+		}
+	}
+
+	return []string{
+		"Last observed turn start: " + fallbackPromptValue(lastTurnTime, "unavailable"),
+		"Last observed model latency: " + fallbackPromptValue(lastModelLatency, "unavailable"),
+		"Last observed model output tokens: " + fallbackPromptValue(lastModelTokens, "unavailable"),
+		"Last observed tool call: " + fallbackPromptValue(lastToolName, "unavailable"),
+		"Last observed tool latency: " + fallbackPromptValue(lastToolLatency, "unavailable"),
+		"Last observed tool success: " + fallbackPromptValue(lastToolSuccess, "unavailable"),
+		"Last observed assistant reply: " + fallbackPromptValue(lastAssistantReplyLength, "unavailable"),
+		"Last observed runtime error: " + fallbackPromptValue(lastRuntimeError, "none recorded"),
+	}
+}
+
+func readRecentAuditEntries(dir string, limit int) ([]auditlog.Entry, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return nil, fmt.Errorf("log dir unset")
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	logFiles := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".ndjson") {
+			continue
+		}
+		logFiles = append(logFiles, file.Name())
+	}
+	slices.Sort(logFiles)
+	slices.Reverse(logFiles)
+
+	entries := make([]auditlog.Entry, 0, min(limit, 256))
+	for _, name := range logFiles {
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := strings.TrimSpace(lines[i])
+			if line == "" {
+				continue
+			}
+			var entry auditlog.Entry
+			if err := json.Unmarshal([]byte(line), &entry); err != nil {
+				continue
+			}
+			entries = append(entries, entry)
+			if len(entries) >= limit {
+				return entries, nil
+			}
+		}
+	}
+	return entries, nil
+}
+
+func formatAuditEntryTime(raw string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return fallbackPromptValue(raw, "unavailable")
+	}
+	return t.UTC().Format("2006-01-02 15:04:05 UTC")
+}
+
+func formatAuditDuration(value any) string {
+	ms := formatAuditInt(value)
+	if ms == "unavailable" {
+		return ms
+	}
+	return ms + " ms"
+}
+
+func formatAuditInt(value any) string {
+	switch v := value.(type) {
+	case float64:
+		return strconv.Itoa(int(v))
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case json.Number:
+		return v.String()
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return "unavailable"
+		}
+		return v
+	default:
+		return "unavailable"
+	}
+}
+
+func formatAuditBool(value any) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "success"
+		}
+		return "failure"
+	case string:
+		v = strings.TrimSpace(strings.ToLower(v))
+		switch v {
+		case "true", "success", "ok":
+			return "success"
+		case "false", "failure", "error":
+			return "failure"
+		default:
+			return fallbackPromptValue(v, "unavailable")
+		}
+	default:
+		return "unavailable"
+	}
+}
+
+func formatAssistantReplySummary(data map[string]any) string {
+	if length := formatAuditInt(data["length"]); length != "unavailable" {
+		return length + " chars"
+	}
+	if message := strings.TrimSpace(fallbackPromptAny(data["message"], "")); message != "" {
+		return strconv.Itoa(len(message)) + " chars"
+	}
+	return "unavailable"
+}
+
+func formatAuditError(data map[string]any) string {
+	op := strings.TrimSpace(fallbackPromptAny(data["op"], ""))
+	message := strings.TrimSpace(fallbackPromptAny(data["error"], ""))
+	switch {
+	case op != "" && message != "":
+		return op + ": " + message
+	case message != "":
+		return message
+	case op != "":
+		return op
+	default:
+		return "unknown"
+	}
+}
+
+func fallbackPromptAny(value any, fallback string) string {
+	switch v := value.(type) {
+	case string:
+		return fallbackPromptValue(v, fallback)
+	case json.Number:
+		return fallbackPromptValue(v.String(), fallback)
+	case float64:
+		return strconv.Itoa(int(v))
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	default:
+		return fallback
+	}
 }
 
 func promptToolSummary(registry *tools.Registry) string {
