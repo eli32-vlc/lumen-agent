@@ -29,6 +29,7 @@ llm:
   retry_initial_backoff: 2s
   retry_max_backoff: 8s
   headers: {}
+  openai_headers: {}
 
 tools:
   enabled:

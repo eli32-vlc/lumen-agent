@@ -287,6 +287,7 @@ llm:
   context_window_tokens: 28000
   inject_message_timestamps: true
   timeout: 180s
+  openai_headers: {}
 ```
 
 What matters here:
@@ -297,6 +298,7 @@ What matters here:
 - `context_window_tokens` is the total assumed window
 - `inject_message_timestamps` gives the model time grounding
 - `timeout` controls how long a request can hang before failing
+- `openai_headers` lets you attach extra HTTP headers only for `api_type: openai`, without affecting Codex
 
 ### 7. Pick your starter tools
 

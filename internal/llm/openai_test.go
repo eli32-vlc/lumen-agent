@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -69,6 +70,31 @@ func TestOpenAIClientUsesChatCompletionsEndpoint(t *testing.T) {
 	}
 	if message.Content != "hello from chat completions" {
 		t.Fatalf("unexpected content %q", message.Content)
+	}
+}
+
+func TestNewClientAppliesOpenAIOnlyHeadersToChatCompletions(t *testing.T) {
+	client := NewClient(
+		"https://api.example.test",
+		"test-key",
+		APITypeOpenAI,
+		map[string]string{"X-Shared": "shared"},
+		map[string]string{
+			"X-Shared":         "openai-override",
+			"OpenAI-Reasoning": "disable",
+		},
+		30*time.Second,
+	)
+
+	chatClient, ok := client.impl.(*chatCompletionsClient)
+	if !ok {
+		t.Fatalf("expected chat completions client, got %T", client.impl)
+	}
+	if got := chatClient.headers["X-Shared"]; got != "openai-override" {
+		t.Fatalf("expected OpenAI-only headers to override shared headers, got %q", got)
+	}
+	if got := chatClient.headers["OpenAI-Reasoning"]; got != "disable" {
+		t.Fatalf("expected OpenAI-only header to be included, got %q", got)
 	}
 }
 
@@ -259,6 +285,28 @@ func TestCodexClientUsesResponsesEndpointAndPreservesToolLoopState(t *testing.T)
 	}
 	if message.ToolCalls[0].Function.Name != "write_file" {
 		t.Fatalf("unexpected tool name %q", message.ToolCalls[0].Function.Name)
+	}
+}
+
+func TestNewClientDoesNotApplyOpenAIOnlyHeadersToCodex(t *testing.T) {
+	client := NewClient(
+		"https://api.example.test",
+		"test-key",
+		APITypeCodex,
+		map[string]string{"X-Shared": "shared"},
+		map[string]string{"OpenAI-Reasoning": "disable"},
+		30*time.Second,
+	)
+
+	responses, ok := client.impl.(*responsesClient)
+	if !ok {
+		t.Fatalf("expected responses client, got %T", client.impl)
+	}
+	if got := responses.headers["X-Shared"]; got != "shared" {
+		t.Fatalf("expected shared header to remain for codex, got %q", got)
+	}
+	if got := responses.headers["OpenAI-Reasoning"]; got != "" {
+		t.Fatalf("expected OpenAI-only headers to be omitted for codex, got %q", got)
 	}
 }
 

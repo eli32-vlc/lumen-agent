@@ -70,6 +70,7 @@ type LLMConfig struct {
 	RetryInitialBackoff     string            `yaml:"retry_initial_backoff"`
 	RetryMaxBackoff         string            `yaml:"retry_max_backoff"`
 	Headers                 map[string]string `yaml:"headers"`
+	OpenAIHeaders           map[string]string `yaml:"openai_headers"`
 }
 
 type SkillsConfig struct {
@@ -253,6 +254,7 @@ func defaultConfig() Config {
 			RetryInitialBackoff:     "2s",
 			RetryMaxBackoff:         "8s",
 			Headers:                 map[string]string{},
+			OpenAIHeaders:           map[string]string{},
 		},
 		Tools: ToolsConfig{
 			Enabled: []string{
@@ -475,6 +477,8 @@ func (c *Config) resolvePaths() error {
 		c.LLM.APIType = "openai"
 	}
 	c.LLM.APIKey = strings.TrimSpace(c.LLM.APIKey)
+	c.LLM.Headers = normalizeStringMap(c.LLM.Headers)
+	c.LLM.OpenAIHeaders = normalizeStringMap(c.LLM.OpenAIHeaders)
 	if c.LLM.ContextWindowTokens <= 0 {
 		c.LLM.ContextWindowTokens = 24000
 	}
@@ -1346,6 +1350,22 @@ func uniqueTrimmedStrings(values []string) []string {
 		}
 		seen[trimmed] = struct{}{}
 		result = append(result, trimmed)
+	}
+	return result
+}
+
+func normalizeStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return map[string]string{}
+	}
+
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		result[trimmedKey] = strings.TrimSpace(value)
 	}
 	return result
 }

@@ -137,6 +137,7 @@ Key fields:
 - `retry_initial_backoff`
 - `retry_max_backoff`
 - `headers`
+- `openai_headers`
 
 #### How `llm` settings interact
 
@@ -161,6 +162,7 @@ Important behavior notes:
 - `reasoning_effort` only matters on providers that support it
 - `vision_enabled` is the switch that turns image attachments into multimodal model input
 - custom `headers` can be useful for provider gateways or compatibility layers
+- `openai_headers` are only attached when `llm.api_type` is `openai`; Codex requests ignore them
 
 ### `tools`
 
