@@ -29,7 +29,8 @@ llm:
   retry_initial_backoff: 2s
   retry_max_backoff: 8s
   headers: {}
-  openai_headers: {}
+  kimi-no-think: false
+  glm-no-think: false
 
 tools:
   enabled:

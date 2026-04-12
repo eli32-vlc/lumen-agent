@@ -87,14 +87,20 @@ type ToolFunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-func NewClient(baseURL string, apiKey string, apiType string, headers map[string]string, openAIHeaders map[string]string, timeout time.Duration) *Client {
+func NewClient(baseURL string, apiKey string, apiType string, headers map[string]string, kimiNoThink bool, glmNoThink bool, timeout time.Duration) *Client {
 	switch strings.TrimSpace(strings.ToLower(apiType)) {
 	case "", APITypeOpenAI:
-		return &Client{impl: &chatCompletionsClient{httpJSONClient: newHTTPJSONClient(baseURL, "/chat/completions", apiKey, mergeHeaders(headers, openAIHeaders), timeout)}}
+		return &Client{impl: &chatCompletionsClient{
+			httpJSONClient: newHTTPJSONClient(baseURL, "/chat/completions", apiKey, headers, timeout),
+			extraBody:      buildOpenAIExtraBody(kimiNoThink, glmNoThink),
+		}}
 	case APITypeCodex:
 		return &Client{impl: &responsesClient{httpJSONClient: newHTTPJSONClient(baseURL, "/responses", apiKey, headers, timeout)}}
 	default:
-		return &Client{impl: &chatCompletionsClient{httpJSONClient: newHTTPJSONClient(baseURL, "/chat/completions", apiKey, mergeHeaders(headers, openAIHeaders), timeout)}}
+		return &Client{impl: &chatCompletionsClient{
+			httpJSONClient: newHTTPJSONClient(baseURL, "/chat/completions", apiKey, headers, timeout),
+			extraBody:      buildOpenAIExtraBody(kimiNoThink, glmNoThink),
+		}}
 	}
 }
 
@@ -120,21 +126,6 @@ func newHTTPJSONClient(baseURL string, path string, apiKey string, headers map[s
 			Timeout: timeout,
 		},
 	}
-}
-
-func mergeHeaders(base map[string]string, overlay map[string]string) map[string]string {
-	if len(base) == 0 && len(overlay) == 0 {
-		return map[string]string{}
-	}
-
-	merged := make(map[string]string, len(base)+len(overlay))
-	for key, value := range base {
-		merged[key] = value
-	}
-	for key, value := range overlay {
-		merged[key] = value
-	}
-	return merged
 }
 
 func (c *httpJSONClient) postJSON(ctx context.Context, payload any) ([]byte, error) {
@@ -210,6 +201,27 @@ func (c *httpJSONClient) doJSONRequest(ctx context.Context, payload any) (*http.
 
 type chatCompletionsClient struct {
 	*httpJSONClient
+	extraBody map[string]any
+}
+
+func buildOpenAIExtraBody(kimiNoThink bool, glmNoThink bool) map[string]any {
+	if !kimiNoThink && !glmNoThink {
+		return map[string]any{}
+	}
+
+	extraBody := make(map[string]any)
+	if kimiNoThink {
+		extraBody["chat_template_kwargs"] = map[string]any{
+			"thinking": false,
+		}
+	}
+	if glmNoThink {
+		extraBody["thinking"] = map[string]any{
+			"type": "disabled",
+		}
+		extraBody["clear_thinking"] = true
+	}
+	return extraBody
 }
 
 func (c *chatCompletionsClient) Chat(ctx context.Context, req Request) (Message, error) {
@@ -230,6 +242,9 @@ func (c *chatCompletionsClient) Chat(ctx context.Context, req Request) (Message,
 	if len(req.Tools) > 0 {
 		payload["tools"] = req.Tools
 		payload["tool_choice"] = "auto"
+	}
+	for key, value := range c.extraBody {
+		payload[key] = value
 	}
 
 	data, err := c.postJSON(ctx, payload)

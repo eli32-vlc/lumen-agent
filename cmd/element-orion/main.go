@@ -100,7 +100,15 @@ func runServe(args []string) error {
 		}
 	}()
 
-	client := llm.NewClient(cfg.LLM.BaseURL, apiKey, cfg.LLM.APIType, cfg.LLM.Headers, cfg.LLM.OpenAIHeaders, cfg.LLMTimeout())
+	client := llm.NewClient(
+		cfg.LLM.BaseURL,
+		apiKey,
+		cfg.LLM.APIType,
+		cfg.LLM.Headers,
+		cfg.LLM.KimiNoThink,
+		cfg.LLM.GLMNoThink,
+		cfg.LLMTimeout(),
+	)
 	runner := agent.NewRunner(cfg, client, registry)
 	var sandboxManager tools.SandboxManager
 	if cfg.BackgroundTasks.Sandbox.Enabled {

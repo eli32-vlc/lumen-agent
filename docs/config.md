@@ -137,7 +137,8 @@ Key fields:
 - `retry_initial_backoff`
 - `retry_max_backoff`
 - `headers`
-- `openai_headers`
+- `kimi-no-think`
+- `glm-no-think`
 
 #### How `llm` settings interact
 
@@ -162,7 +163,8 @@ Important behavior notes:
 - `reasoning_effort` only matters on providers that support it
 - `vision_enabled` is the switch that turns image attachments into multimodal model input
 - custom `headers` can be useful for provider gateways or compatibility layers
-- `openai_headers` are only attached when `llm.api_type` is `openai`; Codex requests ignore them
+- `kimi-no-think` only affects `llm.api_type: openai` and injects `chat_template_kwargs.thinking: false` into the request body
+- `glm-no-think` only affects `llm.api_type: openai` and injects `thinking.type: disabled` plus `clear_thinking: true` into the request body
 
 ### `tools`
 

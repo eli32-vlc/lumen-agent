@@ -73,16 +73,14 @@ func TestOpenAIClientUsesChatCompletionsEndpoint(t *testing.T) {
 	}
 }
 
-func TestNewClientAppliesOpenAIOnlyHeadersToChatCompletions(t *testing.T) {
+func TestNewClientAppliesKimiNoThinkExtraBodyToChatCompletions(t *testing.T) {
 	client := NewClient(
 		"https://api.example.test",
 		"test-key",
 		APITypeOpenAI,
 		map[string]string{"X-Shared": "shared"},
-		map[string]string{
-			"X-Shared":         "openai-override",
-			"OpenAI-Reasoning": "disable",
-		},
+		true,
+		false,
 		30*time.Second,
 	)
 
@@ -90,11 +88,12 @@ func TestNewClientAppliesOpenAIOnlyHeadersToChatCompletions(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected chat completions client, got %T", client.impl)
 	}
-	if got := chatClient.headers["X-Shared"]; got != "openai-override" {
-		t.Fatalf("expected OpenAI-only headers to override shared headers, got %q", got)
+	if got := chatClient.headers["X-Shared"]; got != "shared" {
+		t.Fatalf("expected shared header to remain unchanged, got %q", got)
 	}
-	if got := chatClient.headers["OpenAI-Reasoning"]; got != "disable" {
-		t.Fatalf("expected OpenAI-only header to be included, got %q", got)
+	kwargs, ok := chatClient.extraBody["chat_template_kwargs"].(map[string]any)
+	if !ok || kwargs["thinking"] != false {
+		t.Fatalf("expected kimi no-think extra body, got %#v", chatClient.extraBody)
 	}
 }
 
@@ -138,6 +137,63 @@ func TestOpenAIClientOmitsReasoningEffortWhenSetToNone(t *testing.T) {
 		Temperature:     0.2,
 		MaxTokens:       32,
 		ReasoningEffort: "none",
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+}
+
+func TestOpenAIClientIncludesConfiguredNoThinkFieldsInPayload(t *testing.T) {
+	client := &Client{impl: &chatCompletionsClient{
+		httpJSONClient: &httpJSONClient{
+			endpoint: "https://api.example.test/chat/completions",
+			apiKey:   "test-key",
+			headers:  map[string]string{},
+			httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode request: %v", err)
+				}
+
+				kwargs, ok := payload["chat_template_kwargs"].(map[string]any)
+				if !ok || kwargs["thinking"] != false {
+					t.Fatalf("expected kimi no-think payload, got %#v", payload["chat_template_kwargs"])
+				}
+				thinking, ok := payload["thinking"].(map[string]any)
+				if !ok || thinking["type"] != "disabled" {
+					t.Fatalf("expected glm no-think payload, got %#v", payload["thinking"])
+				}
+				if payload["clear_thinking"] != true {
+					t.Fatalf("expected clear_thinking=true, got %#v", payload["clear_thinking"])
+				}
+
+				body, err := json.Marshal(map[string]any{
+					"choices": []map[string]any{{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "ok",
+						},
+					}},
+				})
+				if err != nil {
+					t.Fatalf("marshal response: %v", err)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(bytes.NewReader(body)),
+				}, nil
+			})},
+		},
+		extraBody: buildOpenAIExtraBody(true, true),
+	}}
+
+	_, err := client.Chat(context.Background(), Request{
+		Model:       "kimi-k2.5",
+		Messages:    []Message{{Role: "user", Content: "hi"}},
+		Temperature: 0.2,
+		MaxTokens:   32,
 	})
 	if err != nil {
 		t.Fatalf("Chat returned error: %v", err)
@@ -288,13 +344,38 @@ func TestCodexClientUsesResponsesEndpointAndPreservesToolLoopState(t *testing.T)
 	}
 }
 
-func TestNewClientDoesNotApplyOpenAIOnlyHeadersToCodex(t *testing.T) {
+func TestNewClientAppliesGLMNoThinkExtraBodyToChatCompletions(t *testing.T) {
+	client := NewClient(
+		"https://api.example.test",
+		"test-key",
+		APITypeOpenAI,
+		map[string]string{},
+		false,
+		true,
+		30*time.Second,
+	)
+
+	chatClient, ok := client.impl.(*chatCompletionsClient)
+	if !ok {
+		t.Fatalf("expected chat completions client, got %T", client.impl)
+	}
+	thinking, ok := chatClient.extraBody["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "disabled" {
+		t.Fatalf("expected glm thinking disable payload, got %#v", chatClient.extraBody)
+	}
+	if got := chatClient.extraBody["clear_thinking"]; got != true {
+		t.Fatalf("expected clear_thinking=true, got %#v", got)
+	}
+}
+
+func TestNewClientDoesNotApplyNoThinkExtraBodyToCodex(t *testing.T) {
 	client := NewClient(
 		"https://api.example.test",
 		"test-key",
 		APITypeCodex,
 		map[string]string{"X-Shared": "shared"},
-		map[string]string{"OpenAI-Reasoning": "disable"},
+		true,
+		true,
 		30*time.Second,
 	)
 
@@ -304,9 +385,6 @@ func TestNewClientDoesNotApplyOpenAIOnlyHeadersToCodex(t *testing.T) {
 	}
 	if got := responses.headers["X-Shared"]; got != "shared" {
 		t.Fatalf("expected shared header to remain for codex, got %q", got)
-	}
-	if got := responses.headers["OpenAI-Reasoning"]; got != "" {
-		t.Fatalf("expected OpenAI-only headers to be omitted for codex, got %q", got)
 	}
 }
 

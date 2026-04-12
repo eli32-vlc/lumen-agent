@@ -70,7 +70,8 @@ type LLMConfig struct {
 	RetryInitialBackoff     string            `yaml:"retry_initial_backoff"`
 	RetryMaxBackoff         string            `yaml:"retry_max_backoff"`
 	Headers                 map[string]string `yaml:"headers"`
-	OpenAIHeaders           map[string]string `yaml:"openai_headers"`
+	KimiNoThink             bool              `yaml:"kimi-no-think"`
+	GLMNoThink              bool              `yaml:"glm-no-think"`
 }
 
 type SkillsConfig struct {
@@ -254,7 +255,6 @@ func defaultConfig() Config {
 			RetryInitialBackoff:     "2s",
 			RetryMaxBackoff:         "8s",
 			Headers:                 map[string]string{},
-			OpenAIHeaders:           map[string]string{},
 		},
 		Tools: ToolsConfig{
 			Enabled: []string{
@@ -478,7 +478,6 @@ func (c *Config) resolvePaths() error {
 	}
 	c.LLM.APIKey = strings.TrimSpace(c.LLM.APIKey)
 	c.LLM.Headers = normalizeStringMap(c.LLM.Headers)
-	c.LLM.OpenAIHeaders = normalizeStringMap(c.LLM.OpenAIHeaders)
 	if c.LLM.ContextWindowTokens <= 0 {
 		c.LLM.ContextWindowTokens = 24000
 	}

@@ -387,7 +387,6 @@ func TestResolvePathsNormalizesDiscordListsAndSessionScope(t *testing.T) {
 	cfg.GIFs.ContentFilter = " HIGH "
 	cfg.LLM.ReasoningEffort = " HIGH "
 	cfg.LLM.Headers = map[string]string{" X-Shared ": " value ", "": "drop-me"}
-	cfg.LLM.OpenAIHeaders = map[string]string{" OpenAI-Reasoning ": " disable "}
 
 	if err := cfg.resolvePaths(); err != nil {
 		t.Fatalf("resolvePaths returned error: %v", err)
@@ -416,9 +415,6 @@ func TestResolvePathsNormalizesDiscordListsAndSessionScope(t *testing.T) {
 	}
 	if _, ok := cfg.LLM.Headers[""]; ok {
 		t.Fatal("expected empty shared header key to be removed")
-	}
-	if got := cfg.LLM.OpenAIHeaders["OpenAI-Reasoning"]; got != "disable" {
-		t.Fatalf("expected normalized openai-only header value %q, got %q", "disable", got)
 	}
 }
 
