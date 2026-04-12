@@ -177,7 +177,6 @@ func TestStatusReportIncludesContextAndTaskCounts(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"## Element Orion Check-In",
 		"**Context**",
 		"```text",
 		"🛠️ Background jobs: 3 active (1 queued, 2 running), 1 done, 1 failed, 1 canceled",
@@ -227,7 +226,6 @@ func TestStatusReportWithoutSessionIsFriendly(t *testing.T) {
 
 	report := service.statusReport(key)
 	for _, snippet := range []string{
-		"## Element Orion Check-In",
 		"🧠 Context usage: ",
 		"🛠️ Background jobs: none",
 		"💤 no active chat in this channel",

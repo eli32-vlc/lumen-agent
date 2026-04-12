@@ -1533,7 +1533,7 @@ func (s *Service) statusReport(key sessionKey) string {
 	activeSessions, queuedTasks, runningTasks, completedTasks, failedTasks, canceledTasks := s.backgroundAndSessionCounts()
 	worker := s.latestBackgroundTaskForChannel(key.ChannelID)
 	isDirectMessage := !s.isSharedConversation(key.GuildID, key.ChannelID)
-	lines := []string{"## Element Orion Check-In"}
+	lines := []string{}
 
 	if session == nil {
 		estimate := s.runner.EstimateContextUsage(nil, agent.ConversationContext{
