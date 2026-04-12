@@ -70,6 +70,31 @@ func TestWithinHeartbeatActiveHoursSupportsWraparound(t *testing.T) {
 	}
 }
 
+func TestWithinDreamSleepHoursSupportsWraparound(t *testing.T) {
+	service := &Service{cfg: config.Config{DreamMode: config.DreamModeConfig{Enabled: true, SleepHours: config.HeartbeatActiveHoursConfig{Timezone: "UTC", Start: "22:00", End: "06:00"}}}}
+	if !service.withinDreamSleepHours(time.Date(2026, 3, 12, 23, 0, 0, 0, time.UTC)) {
+		t.Fatal("expected 23:00 UTC to be inside wrapped dream sleep hours")
+	}
+	if service.withinDreamSleepHours(time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC)) {
+		t.Fatal("expected 12:00 UTC to be outside dream sleep hours")
+	}
+}
+
+func TestBuildDreamPromptMentionsMemoryMaintenance(t *testing.T) {
+	prompt := buildDreamPrompt()
+	for _, snippet := range []string{
+		"dream mode maintenance run",
+		"review the configured memory directory",
+		"Read the memory files",
+		"Verify every saved memory file",
+		"DREAM_OK",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected dream prompt to contain %q", snippet)
+		}
+	}
+}
+
 func TestResolveHeartbeatChecklistPathFindsLowercaseFile(t *testing.T) {
 	root := t.TempDir()
 	lowerPath := filepath.Join(root, "heartbeat.md")

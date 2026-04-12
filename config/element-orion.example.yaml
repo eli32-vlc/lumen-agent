@@ -148,6 +148,16 @@ heartbeat:
     channel_id: ""
     user_id: ""
 
+dream_mode:
+  enabled: false
+  every: 6h
+  model: ""
+  light_context: false
+  sleep_hours:
+    timezone: ""
+    start: ""
+    end: ""
+
 event_webhook:
   enabled: false
   listen_addr: 127.0.0.1:8787

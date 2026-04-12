@@ -565,6 +565,16 @@ heartbeat:
     guild_id: ""
     channel_id: your-channel-id
     user_id: your-user-id
+
+dream_mode:
+  enabled: false
+  every: 6h
+  model: ""
+  light_context: false
+  sleep_hours:
+    timezone: Australia/Brisbane
+    start: "23:00"
+    end: "06:00"
 ```
 
 ### 15. Common setup mistakes

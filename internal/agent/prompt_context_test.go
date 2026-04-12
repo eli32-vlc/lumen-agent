@@ -332,6 +332,57 @@ func TestSystemPromptIncludesProactiveSectionForHeartbeatOnly(t *testing.T) {
 	}
 }
 
+func TestDreamModePromptIncludesDreamInstructionsAndMetadata(t *testing.T) {
+	workspace := t.TempDir()
+	memoryRoot := filepath.Join(workspace, ".memory")
+	writeTestFile(t, memoryRoot, "MEMORY.md", "curated memory")
+
+	runner := &Runner{cfg: config.Config{
+		App: config.AppConfig{
+			WorkspaceRoot: workspace,
+			MemoryDir:     memoryRoot,
+		},
+		LLM: config.LLMConfig{
+			APIType: "openai",
+			BaseURL: "https://api.example.test/v1",
+			Model:   "gpt-main",
+		},
+		DreamMode: config.DreamModeConfig{
+			Enabled:      true,
+			Every:        "6h",
+			Model:        "gpt-dream",
+			LightContext: true,
+			SleepHours: config.HeartbeatActiveHoursConfig{
+				Timezone: "Australia/Brisbane",
+				Start:    "23:00",
+				End:      "06:00",
+			},
+		},
+	}}
+
+	prompt := runner.systemPrompt(ConversationContext{
+		IsDreamMode:     true,
+		IsDirectMessage: true,
+		ModelOverride:   "gpt-dream",
+		Now:             time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Dream mode:",
+		"Dream mode runs during configured sleep hours",
+		"Execution mode: dream mode",
+		"Dream mode enabled: enabled",
+		"Dream mode schedule: 6h",
+		"Dream mode model: gpt-dream",
+		"Dream mode light context: enabled",
+		"Dream mode sleep hours: 23:00-06:00 Australia/Brisbane",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+}
+
 func TestSystemPromptIncludesProactiveSectionForBackgroundTasks(t *testing.T) {
 	workspace := t.TempDir()
 	runner := &Runner{cfg: config.Config{App: config.AppConfig{WorkspaceRoot: workspace}}}

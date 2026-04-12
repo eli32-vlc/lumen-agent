@@ -21,6 +21,7 @@ type Config struct {
 	Discord         DiscordConfig         `yaml:"discord"`
 	GIFs            GIFConfig             `yaml:"gifs"`
 	Heartbeat       HeartbeatConfig       `yaml:"heartbeat"`
+	DreamMode       DreamModeConfig       `yaml:"dream_mode"`
 	EventWebhook    EventWebhookConfig    `yaml:"event_webhook"`
 	Skills          SkillsConfig          `yaml:"skills"`
 	MCP             MCPConfig             `yaml:"mcp"`
@@ -171,6 +172,14 @@ type HeartbeatTargetConfig struct {
 	GuildID   string `yaml:"guild_id"`
 	ChannelID string `yaml:"channel_id"`
 	UserID    string `yaml:"user_id"`
+}
+
+type DreamModeConfig struct {
+	Enabled      bool                       `yaml:"enabled"`
+	Every        string                     `yaml:"every"`
+	Model        string                     `yaml:"model"`
+	LightContext bool                       `yaml:"light_context"`
+	SleepHours   HeartbeatActiveHoursConfig `yaml:"sleep_hours"`
 }
 
 type EventWebhookConfig struct {
@@ -354,6 +363,13 @@ func defaultConfig() Config {
 			EventPollInterval: "5s",
 			ActiveHours:       HeartbeatActiveHoursConfig{},
 			Target:            HeartbeatTargetConfig{},
+		},
+		DreamMode: DreamModeConfig{
+			Enabled:      false,
+			Every:        "6h",
+			Model:        "",
+			LightContext: false,
+			SleepHours:   HeartbeatActiveHoursConfig{},
 		},
 		EventWebhook: EventWebhookConfig{
 			Enabled:     false,
@@ -545,6 +561,14 @@ func (c *Config) resolvePaths() error {
 	c.Heartbeat.ActiveHours.Timezone = strings.TrimSpace(c.Heartbeat.ActiveHours.Timezone)
 	c.Heartbeat.ActiveHours.Start = strings.TrimSpace(c.Heartbeat.ActiveHours.Start)
 	c.Heartbeat.ActiveHours.End = strings.TrimSpace(c.Heartbeat.ActiveHours.End)
+	c.DreamMode.Every = strings.TrimSpace(c.DreamMode.Every)
+	if c.DreamMode.Every == "" {
+		c.DreamMode.Every = "6h"
+	}
+	c.DreamMode.Model = strings.TrimSpace(c.DreamMode.Model)
+	c.DreamMode.SleepHours.Timezone = strings.TrimSpace(c.DreamMode.SleepHours.Timezone)
+	c.DreamMode.SleepHours.Start = strings.TrimSpace(c.DreamMode.SleepHours.Start)
+	c.DreamMode.SleepHours.End = strings.TrimSpace(c.DreamMode.SleepHours.End)
 	c.Heartbeat.Target.GuildID = strings.TrimSpace(c.Heartbeat.Target.GuildID)
 	c.Heartbeat.Target.ChannelID = strings.TrimSpace(c.Heartbeat.Target.ChannelID)
 	c.Heartbeat.Target.UserID = strings.TrimSpace(c.Heartbeat.Target.UserID)
@@ -825,6 +849,29 @@ func (c Config) validate() error {
 		if c.Heartbeat.ActiveHours.Timezone != "" {
 			if _, err := time.LoadLocation(c.Heartbeat.ActiveHours.Timezone); err != nil {
 				return fmt.Errorf("load heartbeat.active_hours.timezone: %w", err)
+			}
+		}
+	}
+
+	if c.DreamMode.Enabled {
+		if _, err := time.ParseDuration(c.DreamMode.Every); err != nil {
+			return fmt.Errorf("parse dream_mode.every: %w", err)
+		}
+		if (c.DreamMode.SleepHours.Start == "") != (c.DreamMode.SleepHours.End == "") {
+			return fmt.Errorf("dream_mode.sleep_hours.start and dream_mode.sleep_hours.end must be set together")
+		}
+		if c.DreamMode.SleepHours.Start == "" {
+			return fmt.Errorf("dream_mode.sleep_hours.start and dream_mode.sleep_hours.end must be set when dream_mode.enabled is true")
+		}
+		if _, err := parseClockHHMM(c.DreamMode.SleepHours.Start); err != nil {
+			return fmt.Errorf("parse dream_mode.sleep_hours.start: %w", err)
+		}
+		if _, err := parseClockHHMM(c.DreamMode.SleepHours.End); err != nil {
+			return fmt.Errorf("parse dream_mode.sleep_hours.end: %w", err)
+		}
+		if c.DreamMode.SleepHours.Timezone != "" {
+			if _, err := time.LoadLocation(c.DreamMode.SleepHours.Timezone); err != nil {
+				return fmt.Errorf("load dream_mode.sleep_hours.timezone: %w", err)
 			}
 		}
 	}
@@ -1159,6 +1206,32 @@ func (c Config) HeartbeatEnabled() bool {
 	return strings.TrimSpace(c.Heartbeat.Every) != "" &&
 		strings.TrimSpace(c.Heartbeat.Target.ChannelID) != "" &&
 		strings.TrimSpace(c.Heartbeat.Target.UserID) != ""
+}
+
+func (c Config) DreamModeEnabled() bool {
+	return c.DreamMode.Enabled && strings.TrimSpace(c.DreamMode.Every) != ""
+}
+
+func (c Config) DreamModeInterval() time.Duration {
+	interval, err := time.ParseDuration(c.DreamMode.Every)
+	if err != nil || interval <= 0 {
+		return 6 * time.Hour
+	}
+	return interval
+}
+
+func (c Config) DreamModeModel() string {
+	if strings.TrimSpace(c.DreamMode.Model) != "" {
+		return c.DreamMode.Model
+	}
+	return c.LLM.Model
+}
+
+func (c Config) DreamModeLocation() (*time.Location, error) {
+	if strings.TrimSpace(c.DreamMode.SleepHours.Timezone) == "" {
+		return time.Local, nil
+	}
+	return time.LoadLocation(c.DreamMode.SleepHours.Timezone)
 }
 
 func (c Config) HeartbeatHasAnyDelivery() bool {

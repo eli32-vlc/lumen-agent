@@ -148,6 +148,15 @@ Heartbeat mode:
 - If nothing needs attention, reply with HEARTBEAT_OK or with HEARTBEAT_OK at the start or end of a very short acknowledgment.
 - If something needs attention, do not include HEARTBEAT_OK. Return only the alert text.
 
+Dream mode:
+- Dream mode runs during configured sleep hours as a quiet memory-maintenance pass.
+- In dream mode, do not act like a live chat partner. Focus on reviewing and improving the memory files.
+- Read through the configured memory directory, looking for duplication, stale assumptions, weak summaries, and easy opportunities to compact or organize the files.
+- Preserve concrete facts and continuity. Prefer truthful cleanup over stylistic rewrites.
+- When you edit a memory file, verify the saved content before finishing.
+- If memory already looks healthy, return DREAM_OK.
+- If you complete memory maintenance, return DREAM_OK after the verified edits.
+
 Discord response rules:
 - Never narrate tool calls, internal state, or background work unless the user explicitly asks.
 - Keep replies concise and conversational.
@@ -217,6 +226,7 @@ Autonomous work:
 type ConversationContext struct {
 	IsDirectMessage  bool
 	IsHeartbeat      bool
+	IsDreamMode      bool
 	LightContext     bool
 	IsBackgroundTask bool
 	GuildID          string
@@ -247,7 +257,7 @@ func (r *Runner) systemPrompt(conversation ConversationContext) string {
 	builder.WriteString(strings.TrimSpace(outputEfficiencySection))
 	builder.WriteString("\n\n")
 	builder.WriteString(strings.TrimSpace(humanStyleSection))
-	if conversation.IsHeartbeat || conversation.IsBackgroundTask {
+	if conversation.IsHeartbeat || conversation.IsBackgroundTask || conversation.IsDreamMode {
 		builder.WriteString("\n\n")
 		builder.WriteString(strings.TrimSpace(proactiveSection))
 	}
@@ -265,6 +275,9 @@ func (r *Runner) systemPrompt(conversation ConversationContext) string {
 	}
 	if conversation.IsBackgroundTask {
 		builder.WriteString("\n- Execution mode: background task")
+	}
+	if conversation.IsDreamMode {
+		builder.WriteString("\n- Execution mode: dream mode")
 	}
 	if len(runtimeMetadata) > 0 {
 		builder.WriteString("\n\nRuntime metadata:\n")
@@ -337,7 +350,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Enabled tools: " + promptToolSummary(r.registry),
 	}
 
-	if conversation.IsHeartbeat || conversation.IsBackgroundTask {
+	if conversation.IsHeartbeat || conversation.IsBackgroundTask || conversation.IsDreamMode {
 		lines = append(lines,
 			"Heartbeat enabled: "+promptBoolStatus(r.cfg.HeartbeatEnabled()),
 			"Heartbeat schedule: "+durationOrDisabled(r.cfg.Heartbeat.Every),
@@ -348,6 +361,15 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 			"Heartbeat active hours: "+promptHeartbeatActiveHoursSummary(r.cfg),
 			"Heartbeat target: "+promptHeartbeatTargetSummary(r.cfg),
 			"Precise wakeups: app-managed scheduler via schedule_heartbeat_wakeup",
+		)
+	}
+	if conversation.IsDreamMode {
+		lines = append(lines,
+			"Dream mode enabled: "+promptBoolStatus(r.cfg.DreamModeEnabled()),
+			"Dream mode schedule: "+durationOrDisabled(r.cfg.DreamMode.Every),
+			"Dream mode model: "+fallbackPromptValue(r.cfg.DreamModeModel(), "inherit"),
+			"Dream mode light context: "+promptBoolStatus(r.cfg.DreamMode.LightContext),
+			"Dream mode sleep hours: "+promptDreamSleepHoursSummary(r.cfg),
 		)
 	}
 
@@ -425,6 +447,19 @@ func promptHeartbeatActiveHoursSummary(cfg config.Config) string {
 		return "always"
 	}
 	zone := strings.TrimSpace(cfg.Heartbeat.ActiveHours.Timezone)
+	if zone == "" {
+		zone = time.Local.String()
+	}
+	return start + "-" + end + " " + zone
+}
+
+func promptDreamSleepHoursSummary(cfg config.Config) string {
+	start := strings.TrimSpace(cfg.DreamMode.SleepHours.Start)
+	end := strings.TrimSpace(cfg.DreamMode.SleepHours.End)
+	if start == "" || end == "" {
+		return "disabled"
+	}
+	zone := strings.TrimSpace(cfg.DreamMode.SleepHours.Timezone)
 	if zone == "" {
 		zone = time.Local.String()
 	}

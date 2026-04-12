@@ -338,6 +338,26 @@ func TestValidateRejectsInvalidMaxThinkingToken(t *testing.T) {
 	}
 }
 
+func TestValidateDreamModeRequiresSleepHoursWhenEnabled(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.App.WorkspaceRoot = t.TempDir()
+	cfg.App.SessionDir = t.TempDir()
+	cfg.App.MemoryDir = t.TempDir()
+	cfg.Discord.BotToken = "token"
+	cfg.Discord.AllowDirectMessages = true
+	cfg.DreamMode.Enabled = true
+	cfg.DreamMode.Every = "6h"
+	cfg.DreamMode.SleepHours = HeartbeatActiveHoursConfig{}
+
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("expected validation error for missing dream mode sleep hours")
+	}
+	if !strings.Contains(err.Error(), "dream_mode.sleep_hours") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
 func TestValidateRejectsContextWindowNotAboveMaxTokens(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.App.WorkspaceRoot = t.TempDir()

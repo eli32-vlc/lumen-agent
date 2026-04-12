@@ -59,6 +59,7 @@ type promptKind string
 const (
 	promptKindUser       promptKind = "user"
 	promptKindHeartbeat  promptKind = "heartbeat"
+	promptKindDream      promptKind = "dream"
 	promptKindBackground promptKind = "background"
 )
 
@@ -239,6 +240,9 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 		go s.runHeartbeatLoop(ctx)
 		go s.runScheduledWakeupLoop(ctx)
+	}
+	if s.cfg.DreamModeEnabled() {
+		go s.runDreamLoop(ctx)
 	}
 
 	<-ctx.Done()
@@ -635,6 +639,7 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	updated, err := s.runner.Run(runCtx, history, prompt.Content, agent.ConversationContext{
 		IsDirectMessage: !s.isSharedConversation(state.Key.GuildID, state.Key.ChannelID),
 		IsHeartbeat:     prompt.Kind == promptKindHeartbeat,
+		IsDreamMode:     prompt.Kind == promptKindDream,
 		LightContext:    prompt.LightContext,
 		GuildID:         prompt.GuildID,
 		ChannelID:       prompt.ChannelID,
@@ -666,7 +671,7 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 				s.audit.Write("error", state.ID, map[string]any{"op": "persist_failed_session", "error": persistErr.Error()})
 			}
 		}
-		if prompt.Kind == promptKindHeartbeat {
+		if prompt.Kind == promptKindHeartbeat || prompt.Kind == promptKindDream {
 			return
 		}
 		replyText := formatRunErrorForDiscord(err)
@@ -692,6 +697,9 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 
 	if prompt.Kind == promptKindHeartbeat {
 		s.handleHeartbeatReply(prompt, reply)
+		return
+	}
+	if prompt.Kind == promptKindDream {
 		return
 	}
 
@@ -732,6 +740,9 @@ func (s *Service) prepareRunHistory(prompt inboundPrompt, history []llm.Message)
 	previousHistoryLen := len(history)
 	persistSessionHistory := true
 	if prompt.Kind == promptKindHeartbeat && s.cfg.Heartbeat.IsolatedSession {
+		return nil, 0, false
+	}
+	if prompt.Kind == promptKindDream {
 		return nil, 0, false
 	}
 	return history, previousHistoryLen, persistSessionHistory

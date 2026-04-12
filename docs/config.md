@@ -390,6 +390,35 @@ Typical setup:
 
 This tells Element Orion where proactive messages belong.
 
+### `dream_mode`
+
+Controls silent memory-maintenance runs.
+
+Key fields:
+
+- `enabled`
+- `every`
+- `model`
+- `light_context`
+- `sleep_hours`
+
+Important behavior:
+
+- dream mode does not need a Discord delivery target
+- it runs quietly during the configured sleep window
+- it uses the configured or inherited model to review and reorganize memory files
+- `light_context: true` keeps the startup prompt slimmer, but the dream run can still inspect memory files with tools
+
+#### `dream_mode.sleep_hours`
+
+This defines the local time window when dream runs are allowed.
+
+- `timezone`
+- `start`
+- `end`
+
+If you enable dream mode, set both `start` and `end`.
+
 ### `event_webhook`
 
 ### `event_webhook`
