@@ -580,12 +580,24 @@ func cloneMessages(messages []llm.Message) []llm.Message {
 func llmRequestAuditData(req llm.Request) map[string]any {
 	return map[string]any{
 		"model":            req.Model,
-		"messages":         cloneMessages(req.Messages),
+		"messages":         redactSystemMessages(req.Messages),
 		"tools":            req.Tools,
 		"temperature":      req.Temperature,
 		"max_tokens":       req.MaxTokens,
 		"reasoning_effort": req.ReasoningEffort,
 	}
+}
+
+func redactSystemMessages(messages []llm.Message) []llm.Message {
+	cloned := cloneMessages(messages)
+	for i := range cloned {
+		if cloned[i].Role != "system" {
+			continue
+		}
+		cloned[i].Content = "[redacted system prompt]"
+		cloned[i].Parts = nil
+	}
+	return cloned
 }
 
 func llmMessageAuditData(message llm.Message) map[string]any {

@@ -160,6 +160,30 @@ func TestCompactHistoryForNextTurnDropsAssistantResponseItems(t *testing.T) {
 	}
 }
 
+func TestLLMRequestAuditDataRedactsSystemPromptContent(t *testing.T) {
+	data := llmRequestAuditData(llm.Request{
+		Model: "gpt-test",
+		Messages: []llm.Message{
+			{Role: "system", Content: "secret system prompt"},
+			{Role: "user", Content: "hello"},
+		},
+	})
+
+	messages, ok := data["messages"].([]llm.Message)
+	if !ok {
+		t.Fatalf("expected audit messages slice, got %#v", data["messages"])
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+	if messages[0].Content != "[redacted system prompt]" {
+		t.Fatalf("expected system prompt to be redacted, got %q", messages[0].Content)
+	}
+	if messages[1].Content != "hello" {
+		t.Fatalf("expected non-system content to remain, got %q", messages[1].Content)
+	}
+}
+
 func TestChatWithRetryRetriesTimeoutAndSucceeds(t *testing.T) {
 	client := &fakeChatClient{results: []fakeChatResult{
 		{err: context.DeadlineExceeded},
