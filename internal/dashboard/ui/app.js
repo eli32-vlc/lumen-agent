@@ -67,6 +67,16 @@
     return `${value.toFixed(1)}%`;
   }
 
+  function formatTokensPerSecond(value) {
+    if (!Number.isFinite(value) || value <= 0) {
+      return "—";
+    }
+    if (value >= 100) {
+      return `${Math.round(value)} tok/s`;
+    }
+    return `${value.toFixed(1)} tok/s`;
+  }
+
   function formatDuration(value) {
     if (!value) {
       return "—";
@@ -314,13 +324,24 @@
   function renderMetrics(state) {
     const summary = state.summary || {};
     const memory = state.memory || {};
-    const modelEvents = latestEvents.filter((event) => event.category === "model").map((event) => event.tokens);
+    const completedModelEvents = latestEvents.filter((event) =>
+      event.category === "model" && event.tokens > 0 && event.duration > 0
+    );
     const toolEvents = latestEvents.filter((event) => event.category === "tool" && event.status !== "running");
     const toolTotals = toolEvents.length;
     const successfulTools = Math.max(0, (summary.recent_tool_calls || toolTotals) - (summary.tool_failures || 0));
     const successRate = toolTotals || summary.recent_tool_calls
       ? (successfulTools / Math.max(1, summary.recent_tool_calls || toolTotals)) * 100
       : NaN;
+    const totalModelTokens = completedModelEvents.reduce((sum, event) => sum + event.tokens, 0);
+    const totalModelDuration = completedModelEvents.reduce((sum, event) => sum + event.duration, 0);
+    const tokensPerSecond = totalModelDuration > 0
+      ? (totalModelTokens / totalModelDuration) * 1000
+      : NaN;
+    const compactionStatus = memory.compaction_enabled ? "compaction enabled" : "compaction disabled";
+    const compactionMeta = memory.compaction_enabled
+      ? `trigger ${formatNumber(memory.compaction_trigger_tokens || 0)} -> ${formatNumber(memory.compaction_target_tokens || 0)} tokens`
+      : "thresholds unavailable while off";
 
     const cards = [
       {
@@ -347,7 +368,15 @@
         meta: memory.available
           ? `${formatNumber(memory.loaded_shards || 0)} of ${formatNumber(memory.shard_count || 0)} shards loaded`
           : "memory directory not readable",
-        trend: memory.compaction_enabled ? "compaction enabled" : "compaction disabled",
+        trend: `load mode: ${memory.load_mode || "unknown"}`,
+      },
+      {
+        label: "Token per second",
+        value: formatTokensPerSecond(tokensPerSecond),
+        meta: completedModelEvents.length
+          ? `${formatNumber(completedModelEvents.length)} completed model calls sampled`
+          : "no completed model calls with duration yet",
+        trend: `${compactionStatus}, ${compactionMeta}`,
       },
     ];
 
