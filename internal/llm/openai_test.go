@@ -39,6 +39,12 @@ func TestOpenAIClientUsesChatCompletionsEndpoint(t *testing.T) {
 			}
 
 			body, err := json.Marshal(map[string]any{
+				"usage": map[string]any{
+					"completion_tokens": 18,
+					"completion_tokens_details": map[string]any{
+						"reasoning_tokens": 7,
+					},
+				},
 				"choices": []map[string]any{{
 					"message": map[string]any{
 						"role":    "assistant",
@@ -70,6 +76,18 @@ func TestOpenAIClientUsesChatCompletionsEndpoint(t *testing.T) {
 	}
 	if message.Content != "hello from chat completions" {
 		t.Fatalf("unexpected content %q", message.Content)
+	}
+	if message.OutputTokens != 18 {
+		t.Fatalf("expected 18 output tokens, got %d", message.OutputTokens)
+	}
+	if message.ReasoningTokens != 7 {
+		t.Fatalf("expected 7 reasoning tokens, got %d", message.ReasoningTokens)
+	}
+	if message.RequestPayload["model"] != "gpt-4.1-mini" {
+		t.Fatalf("expected request payload model to be preserved, got %#v", message.RequestPayload["model"])
+	}
+	if _, ok := message.RawResponse["usage"].(map[string]any); !ok {
+		t.Fatalf("expected raw response usage to be preserved, got %#v", message.RawResponse)
 	}
 }
 
@@ -264,6 +282,12 @@ func TestCodexClientUsesResponsesEndpointAndPreservesToolLoopState(t *testing.T)
 			}
 
 			body, err := json.Marshal(map[string]any{
+				"usage": map[string]any{
+					"output_tokens": 24,
+					"output_tokens_details": map[string]any{
+						"reasoning_tokens": 9,
+					},
+				},
 				"output": []map[string]any{
 					{
 						"type": "reasoning",
@@ -335,6 +359,18 @@ func TestCodexClientUsesResponsesEndpointAndPreservesToolLoopState(t *testing.T)
 	}
 	if len(message.ResponseItems) != 3 {
 		t.Fatalf("expected three raw response items, got %d", len(message.ResponseItems))
+	}
+	if message.OutputTokens != 24 {
+		t.Fatalf("expected 24 output tokens, got %d", message.OutputTokens)
+	}
+	if message.ReasoningTokens != 9 {
+		t.Fatalf("expected 9 reasoning tokens, got %d", message.ReasoningTokens)
+	}
+	if message.RequestPayload["model"] != "codex-mini-latest" {
+		t.Fatalf("expected request payload model to be preserved, got %#v", message.RequestPayload["model"])
+	}
+	if _, ok := message.RawResponse["usage"].(map[string]any); !ok {
+		t.Fatalf("expected raw response usage to be preserved, got %#v", message.RawResponse)
 	}
 	if message.ToolCalls[0].ID != "call_456" {
 		t.Fatalf("expected tool call ID call_456, got %q", message.ToolCalls[0].ID)

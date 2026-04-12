@@ -55,14 +55,19 @@ type ContentPart struct {
 }
 
 type Message struct {
-	Role          string           `json:"role"`
-	Content       string           `json:"content,omitempty"`
-	Parts         []ContentPart    `json:"parts,omitempty"`
-	Timestamp     string           `json:"timestamp,omitempty"`
-	Name          string           `json:"name,omitempty"`
-	ToolCallID    string           `json:"tool_call_id,omitempty"`
-	ToolCalls     []ToolCall       `json:"tool_calls,omitempty"`
-	ResponseItems []map[string]any `json:"response_items,omitempty"`
+	Role            string           `json:"role"`
+	Content         string           `json:"content,omitempty"`
+	Parts           []ContentPart    `json:"parts,omitempty"`
+	Timestamp       string           `json:"timestamp,omitempty"`
+	Name            string           `json:"name,omitempty"`
+	ToolCallID      string           `json:"tool_call_id,omitempty"`
+	ToolCalls       []ToolCall       `json:"tool_calls,omitempty"`
+	ResponseItems   []map[string]any `json:"response_items,omitempty"`
+	Usage           map[string]any   `json:"usage,omitempty"`
+	RequestPayload  map[string]any   `json:"request_payload,omitempty"`
+	RawResponse     map[string]any   `json:"raw_response,omitempty"`
+	OutputTokens    int              `json:"output_tokens,omitempty"`
+	ReasoningTokens int              `json:"reasoning_tokens,omitempty"`
 }
 
 type ToolDefinition struct {
@@ -251,6 +256,7 @@ func (c *chatCompletionsClient) Chat(ctx context.Context, req Request) (Message,
 	if err != nil {
 		return Message{}, err
 	}
+	rawResponse := mustJSONObject(data)
 
 	var parsed chatCompletionResponse
 	if err := json.Unmarshal(data, &parsed); err != nil {
@@ -261,7 +267,13 @@ func (c *chatCompletionsClient) Chat(ctx context.Context, req Request) (Message,
 		return Message{}, fmt.Errorf("response did not include choices")
 	}
 
-	return parsed.Choices[0].Message.toMessage(), nil
+	message := parsed.Choices[0].Message.toMessage()
+	message.RequestPayload = cloneJSONObject(payload)
+	message.RawResponse = rawResponse
+	message.Usage = extractUsage(rawResponse)
+	message.OutputTokens = extractOutputTokens(message.Usage)
+	message.ReasoningTokens = extractReasoningTokens(message.Usage)
+	return message, nil
 }
 
 type responsesClient struct {
@@ -311,11 +323,17 @@ func (c *responsesClient) sendPayload(ctx context.Context, payload map[string]an
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return Message{}, fmt.Errorf("decode response: %w", err)
 	}
+	rawResponse := mustJSONObject(data)
 
 	message, err := parsed.toMessage()
 	if err != nil {
 		return Message{}, err
 	}
+	message.RequestPayload = cloneJSONObject(payload)
+	message.RawResponse = rawResponse
+	message.Usage = extractUsage(rawResponse)
+	message.OutputTokens = extractOutputTokens(message.Usage)
+	message.ReasoningTokens = extractReasoningTokens(message.Usage)
 	return message, nil
 }
 
@@ -351,6 +369,12 @@ func (c *responsesClient) chatStream(ctx context.Context, payload map[string]any
 	if err != nil {
 		return Message{}, err
 	}
+	rawResponse := mustJSONObjectFromValue(parsed)
+	message.RequestPayload = cloneJSONObject(payload)
+	message.RawResponse = rawResponse
+	message.Usage = extractUsage(rawResponse)
+	message.OutputTokens = extractOutputTokens(message.Usage)
+	message.ReasoningTokens = extractReasoningTokens(message.Usage)
 	return message, nil
 }
 
@@ -806,6 +830,74 @@ func mustJSONObject(raw json.RawMessage) map[string]any {
 		return map[string]any{}
 	}
 	return item
+}
+
+func mustJSONObjectFromValue(value any) map[string]any {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return map[string]any{}
+	}
+	return mustJSONObject(data)
+}
+
+func extractUsage(raw map[string]any) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	usage, _ := raw["usage"].(map[string]any)
+	return cloneJSONObject(usage)
+}
+
+func extractOutputTokens(usage map[string]any) int {
+	if usage == nil {
+		return 0
+	}
+	for _, key := range []string{"output_tokens", "completion_tokens"} {
+		if count, ok := intFromAny(usage[key]); ok {
+			return count
+		}
+	}
+	return 0
+}
+
+func extractReasoningTokens(usage map[string]any) int {
+	if usage == nil {
+		return 0
+	}
+	if count, ok := intFromAny(usage["reasoning_tokens"]); ok {
+		return count
+	}
+	for _, key := range []string{"output_tokens_details", "completion_tokens_details"} {
+		details, _ := usage[key].(map[string]any)
+		if details == nil {
+			continue
+		}
+		if count, ok := intFromAny(details["reasoning_tokens"]); ok {
+			return count
+		}
+	}
+	return 0
+}
+
+func intFromAny(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int32:
+		return int(typed), true
+	case int64:
+		return int(typed), true
+	case float64:
+		return int(typed), true
+	case json.Number:
+		number, err := typed.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(number), true
+	default:
+		return 0, false
+	}
 }
 
 func (item responsesOutputItem) text() string {

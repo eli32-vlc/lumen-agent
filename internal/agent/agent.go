@@ -38,6 +38,7 @@ type Event struct {
 	ToolName   string
 	Detail     string
 	FullDetail string
+	Data       map[string]any
 	Time       time.Time
 	DurationMS int64
 	TokenCount int
@@ -122,14 +123,15 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 		emit(Event{Kind: EventStatus, Message: "Contacting model", Time: time.Now()})
 
 		modelStart := time.Now()
-		response, err := r.chatWithRetry(ctx, llm.Request{
+		request := llm.Request{
 			Model:           model,
 			Messages:        r.withSystemPrompt(workingHistory, conversation),
 			Tools:           r.registry.Definitions(),
 			Temperature:     r.cfg.LLM.Temperature,
 			MaxTokens:       r.cfg.LLM.MaxTokens,
 			ReasoningEffort: r.cfg.LLM.ReasoningEffort,
-		}, emit)
+		}
+		response, err := r.chatWithRetry(ctx, request, emit)
 		if err != nil {
 			emit(Event{Kind: EventStatus, Message: "Request failed", Time: time.Now()})
 			return workingHistory, err
@@ -137,19 +139,33 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 
 		responseTime := time.Now().UTC()
 		assistantMessage := llm.Message{
-			Role:          "assistant",
-			Content:       sanitizeAssistantContent(response.Content),
-			Name:          response.Name,
-			ToolCalls:     response.ToolCalls,
-			ResponseItems: response.ResponseItems,
-			Timestamp:     r.messageTimestamp(responseTime),
+			Role:            "assistant",
+			Content:         sanitizeAssistantContent(response.Content),
+			Name:            response.Name,
+			ToolCalls:       response.ToolCalls,
+			ResponseItems:   response.ResponseItems,
+			Usage:           response.Usage,
+			RequestPayload:  response.RequestPayload,
+			RawResponse:     response.RawResponse,
+			OutputTokens:    response.OutputTokens,
+			ReasoningTokens: response.ReasoningTokens,
+			Timestamp:       r.messageTimestamp(responseTime),
+		}
+		outputTokens := response.OutputTokens
+		if outputTokens <= 0 {
+			outputTokens = approximateMessageTokens(assistantMessage)
 		}
 		emit(Event{
-			Kind:       EventModelDone,
-			Message:    "Model replied",
+			Kind:    EventModelDone,
+			Message: "Model replied",
+			Data: map[string]any{
+				"model":    request.Model,
+				"request":  llmRequestAuditData(request),
+				"response": llmMessageAuditData(assistantMessage),
+			},
 			Time:       time.Now(),
 			DurationMS: time.Since(modelStart).Milliseconds(),
-			TokenCount: approximateMessageTokens(assistantMessage),
+			TokenCount: outputTokens,
 			Success:    true,
 		})
 		workingHistory = append(workingHistory, assistantMessage)
@@ -559,6 +575,35 @@ func cloneMessages(messages []llm.Message) []llm.Message {
 	cloned := make([]llm.Message, len(messages))
 	copy(cloned, messages)
 	return cloned
+}
+
+func llmRequestAuditData(req llm.Request) map[string]any {
+	return map[string]any{
+		"model":            req.Model,
+		"messages":         cloneMessages(req.Messages),
+		"tools":            req.Tools,
+		"temperature":      req.Temperature,
+		"max_tokens":       req.MaxTokens,
+		"reasoning_effort": req.ReasoningEffort,
+	}
+}
+
+func llmMessageAuditData(message llm.Message) map[string]any {
+	return map[string]any{
+		"role":             message.Role,
+		"content":          message.Content,
+		"parts":            message.Parts,
+		"timestamp":        message.Timestamp,
+		"name":             message.Name,
+		"tool_call_id":     message.ToolCallID,
+		"tool_calls":       message.ToolCalls,
+		"response_items":   message.ResponseItems,
+		"usage":            message.Usage,
+		"request_payload":  message.RequestPayload,
+		"raw_response":     message.RawResponse,
+		"output_tokens":    message.OutputTokens,
+		"reasoning_tokens": message.ReasoningTokens,
+	}
 }
 
 func CompactHistoryForNextTurn(history []llm.Message) []llm.Message {
