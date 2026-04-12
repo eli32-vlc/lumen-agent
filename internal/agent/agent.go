@@ -124,12 +124,13 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 
 		modelStart := time.Now()
 		request := llm.Request{
-			Model:           model,
-			Messages:        r.withSystemPrompt(workingHistory, conversation),
-			Tools:           r.registry.Definitions(),
-			Temperature:     r.cfg.LLM.Temperature,
-			MaxTokens:       r.cfg.LLM.MaxTokens,
-			ReasoningEffort: r.cfg.LLM.ReasoningEffort,
+			Model:            model,
+			Messages:         r.withSystemPrompt(workingHistory, conversation),
+			Tools:            r.registry.Definitions(),
+			Temperature:      r.cfg.LLM.Temperature,
+			MaxTokens:        r.cfg.LLM.MaxTokens,
+			ReasoningEffort:  r.cfg.LLM.ReasoningEffort,
+			MaxThinkingToken: r.cfg.LLM.MaxThinkingToken,
 		}
 		response, err := r.chatWithRetry(ctx, request, emit)
 		if err != nil {
@@ -579,12 +580,13 @@ func cloneMessages(messages []llm.Message) []llm.Message {
 
 func llmRequestAuditData(req llm.Request) map[string]any {
 	return map[string]any{
-		"model":            req.Model,
-		"messages":         redactSystemMessages(req.Messages),
-		"tools":            req.Tools,
-		"temperature":      req.Temperature,
-		"max_tokens":       req.MaxTokens,
-		"reasoning_effort": req.ReasoningEffort,
+		"model":              req.Model,
+		"messages":           redactSystemMessages(req.Messages),
+		"tools":              req.Tools,
+		"temperature":        req.Temperature,
+		"max_tokens":         req.MaxTokens,
+		"max_thinking_token": req.MaxThinkingToken,
+		"reasoning_effort":   req.ReasoningEffort,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,12 +34,13 @@ type httpJSONClient struct {
 }
 
 type Request struct {
-	Model           string
-	Messages        []Message
-	Tools           []ToolDefinition
-	Temperature     float64
-	MaxTokens       int
-	ReasoningEffort string
+	Model            string
+	Messages         []Message
+	Tools            []ToolDefinition
+	Temperature      float64
+	MaxTokens        int
+	ReasoningEffort  string
+	MaxThinkingToken string
 }
 
 type ContentPartType string
@@ -243,6 +245,9 @@ func (c *chatCompletionsClient) Chat(ctx context.Context, req Request) (Message,
 	if effort := normalizedReasoningEffort(req.ReasoningEffort); effort != "" {
 		payload["reasoning_effort"] = effort
 	}
+	if maxThinkingTokens, ok := normalizedMaxThinkingToken(req.MaxThinkingToken, req.ReasoningEffort); ok {
+		payload["max_thinking_tokens"] = maxThinkingTokens
+	}
 
 	if len(req.Tools) > 0 {
 		payload["tools"] = req.Tools
@@ -297,10 +302,8 @@ func (c *responsesClient) buildPayload(req Request) map[string]any {
 	if req.MaxTokens > 0 {
 		payload["max_output_tokens"] = req.MaxTokens
 	}
-	if effort := normalizedReasoningEffort(req.ReasoningEffort); effort != "" {
-		payload["reasoning"] = map[string]any{
-			"effort": effort,
-		}
+	if reasoningPayload := buildResponsesReasoningPayload(req.ReasoningEffort, req.MaxThinkingToken); len(reasoningPayload) > 0 {
+		payload["reasoning"] = reasoningPayload
 	}
 
 	if len(req.Tools) > 0 {
@@ -602,10 +605,36 @@ func clonePayload(payload map[string]any) map[string]any {
 
 func normalizedReasoningEffort(effort string) string {
 	effort = strings.TrimSpace(strings.ToLower(effort))
-	if effort == "" || effort == "none" {
+	if effort == "" || effort == "off" {
 		return ""
 	}
 	return effort
+}
+
+func normalizedMaxThinkingToken(value string, reasoningEffort string) (int, bool) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" || value == "off" {
+		return 0, false
+	}
+	if strings.TrimSpace(strings.ToLower(reasoningEffort)) == "off" {
+		return 0, false
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil || count < 0 {
+		return 0, false
+	}
+	return count, true
+}
+
+func buildResponsesReasoningPayload(reasoningEffort string, maxThinkingToken string) map[string]any {
+	payload := map[string]any{}
+	if effort := normalizedReasoningEffort(reasoningEffort); effort != "" {
+		payload["effort"] = effort
+	}
+	if maxThinkingTokens, ok := normalizedMaxThinkingToken(maxThinkingToken, reasoningEffort); ok {
+		payload["max_thinking_tokens"] = maxThinkingTokens
+	}
+	return payload
 }
 
 func shouldRetryResponsesAsStream(err error) bool {

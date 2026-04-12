@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ type LLMConfig struct {
 	Model                   string            `yaml:"model"`
 	VisionEnabled           bool              `yaml:"vision_enabled"`
 	ReasoningEffort         string            `yaml:"reasoning_effort"`
+	MaxThinkingToken        string            `yaml:"max_thinking_token"`
 	Temperature             float64           `yaml:"temperature"`
 	MaxTokens               int               `yaml:"max_tokens"`
 	ContextWindowTokens     int               `yaml:"context_window_tokens"`
@@ -642,6 +644,7 @@ func (c *Config) resolvePaths() error {
 	}
 	c.MCP.Servers = servers
 	c.LLM.ReasoningEffort = strings.TrimSpace(strings.ToLower(c.LLM.ReasoningEffort))
+	c.LLM.MaxThinkingToken = strings.TrimSpace(strings.ToLower(c.LLM.MaxThinkingToken))
 
 	return nil
 }
@@ -658,8 +661,14 @@ func (c Config) validate() error {
 	if strings.TrimSpace(c.LLM.Model) == "" {
 		return fmt.Errorf("llm.model must be set")
 	}
-	if c.LLM.ReasoningEffort != "" && !slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh"}, c.LLM.ReasoningEffort) {
-		return fmt.Errorf("llm.reasoning_effort must be one of none, minimal, low, medium, high, or xhigh")
+	if c.LLM.ReasoningEffort != "" && !slices.Contains([]string{"off", "none", "minimal", "low", "medium", "high", "xhigh"}, c.LLM.ReasoningEffort) {
+		return fmt.Errorf("llm.reasoning_effort must be one of off, none, minimal, low, medium, high, or xhigh")
+	}
+	if c.LLM.MaxThinkingToken != "" && c.LLM.MaxThinkingToken != "off" {
+		value, err := strconv.Atoi(c.LLM.MaxThinkingToken)
+		if err != nil || value < 0 {
+			return fmt.Errorf("llm.max_thinking_token must be off or a non-negative integer")
+		}
 	}
 
 	if c.App.MaxAgentLoops <= 0 {

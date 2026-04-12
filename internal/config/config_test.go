@@ -320,6 +320,24 @@ func TestValidateRejectsUnknownLLMReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidMaxThinkingToken(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.App.WorkspaceRoot = t.TempDir()
+	cfg.App.SessionDir = t.TempDir()
+	cfg.App.MemoryDir = t.TempDir()
+	cfg.Discord.BotToken = "token"
+	cfg.Discord.AllowDirectMessages = true
+	cfg.LLM.MaxThinkingToken = "abc"
+
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid llm.max_thinking_token")
+	}
+	if !strings.Contains(err.Error(), "llm.max_thinking_token") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
 func TestValidateRejectsContextWindowNotAboveMaxTokens(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.App.WorkspaceRoot = t.TempDir()
@@ -385,7 +403,8 @@ func TestResolvePathsNormalizesDiscordListsAndSessionScope(t *testing.T) {
 	cfg.Discord.GuildSessionScope = " USER "
 	cfg.GIFs.Provider = " GIPHY "
 	cfg.GIFs.ContentFilter = " HIGH "
-	cfg.LLM.ReasoningEffort = " HIGH "
+	cfg.LLM.ReasoningEffort = " NONE "
+	cfg.LLM.MaxThinkingToken = " OFF "
 	cfg.LLM.Headers = map[string]string{" X-Shared ": " value ", "": "drop-me"}
 
 	if err := cfg.resolvePaths(); err != nil {
@@ -407,8 +426,11 @@ func TestResolvePathsNormalizesDiscordListsAndSessionScope(t *testing.T) {
 	if cfg.GIFs.ContentFilter != "pg-13" {
 		t.Fatalf("expected normalized GIF content filter %q, got %q", "pg-13", cfg.GIFs.ContentFilter)
 	}
-	if cfg.LLM.ReasoningEffort != "high" {
-		t.Fatalf("expected normalized reasoning effort %q, got %q", "high", cfg.LLM.ReasoningEffort)
+	if cfg.LLM.ReasoningEffort != "none" {
+		t.Fatalf("expected normalized reasoning effort %q, got %q", "none", cfg.LLM.ReasoningEffort)
+	}
+	if cfg.LLM.MaxThinkingToken != "off" {
+		t.Fatalf("expected normalized max thinking token %q, got %q", "off", cfg.LLM.MaxThinkingToken)
 	}
 	if got := cfg.LLM.Headers["X-Shared"]; got != "value" {
 		t.Fatalf("expected normalized shared header value %q, got %q", "value", got)

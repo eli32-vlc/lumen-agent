@@ -282,6 +282,7 @@ llm:
   model: gpt-5.4
   vision_enabled: false
   reasoning_effort: medium
+  max_thinking_token: off
   temperature: 0.4
   max_tokens: 3200
   context_window_tokens: 28000
@@ -295,6 +296,8 @@ What matters here:
 
 - `model` decides the base brain
 - `vision_enabled` controls whether image attachments are also forwarded as multimodal input
+- `reasoning_effort: off` omits reasoning fields, while `none` is sent literally for providers that understand it
+- `max_thinking_token` sets a provider thinking budget, or `off` to omit it
 - `max_tokens` is reply budget
 - `context_window_tokens` is the total assumed window
 - `inject_message_timestamps` gives the model time grounding
@@ -506,6 +509,7 @@ llm:
   model: gpt-5.4
   vision_enabled: false
   reasoning_effort: medium
+  max_thinking_token: off
   temperature: 0.4
   max_tokens: 3200
   context_window_tokens: 28000

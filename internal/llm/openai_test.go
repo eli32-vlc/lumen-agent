@@ -37,6 +37,9 @@ func TestOpenAIClientUsesChatCompletionsEndpoint(t *testing.T) {
 			if payload["reasoning_effort"] != "medium" {
 				t.Fatalf("unexpected reasoning_effort %v", payload["reasoning_effort"])
 			}
+			if payload["max_thinking_tokens"] != float64(128) {
+				t.Fatalf("unexpected max_thinking_tokens %v", payload["max_thinking_tokens"])
+			}
 
 			body, err := json.Marshal(map[string]any{
 				"usage": map[string]any{
@@ -65,11 +68,12 @@ func TestOpenAIClientUsesChatCompletionsEndpoint(t *testing.T) {
 	}}}
 
 	message, err := client.Chat(context.Background(), Request{
-		Model:           "gpt-4.1-mini",
-		Messages:        []Message{{Role: "user", Content: "hi"}},
-		Temperature:     0.2,
-		MaxTokens:       32,
-		ReasoningEffort: "medium",
+		Model:            "gpt-4.1-mini",
+		Messages:         []Message{{Role: "user", Content: "hi"}},
+		Temperature:      0.2,
+		MaxTokens:        32,
+		ReasoningEffort:  "medium",
+		MaxThinkingToken: "128",
 	})
 	if err != nil {
 		t.Fatalf("Chat returned error: %v", err)
@@ -115,7 +119,7 @@ func TestNewClientAppliesKimiNoThinkExtraBodyToChatCompletions(t *testing.T) {
 	}
 }
 
-func TestOpenAIClientOmitsReasoningEffortWhenSetToNone(t *testing.T) {
+func TestOpenAIClientOmitsReasoningFieldsWhenSetToOff(t *testing.T) {
 	client := &Client{impl: &chatCompletionsClient{httpJSONClient: &httpJSONClient{
 		endpoint: "https://api.example.test/chat/completions",
 		apiKey:   "test-key",
@@ -127,6 +131,56 @@ func TestOpenAIClientOmitsReasoningEffortWhenSetToNone(t *testing.T) {
 			}
 			if _, ok := payload["reasoning_effort"]; ok {
 				t.Fatalf("expected reasoning_effort to be omitted, got %#v", payload["reasoning_effort"])
+			}
+			if _, ok := payload["max_thinking_tokens"]; ok {
+				t.Fatalf("expected max_thinking_tokens to be omitted, got %#v", payload["max_thinking_tokens"])
+			}
+
+			body, err := json.Marshal(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "hello",
+					},
+				}},
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(body)),
+			}, nil
+		})},
+	}}}
+
+	_, err := client.Chat(context.Background(), Request{
+		Model:            "gpt-4.1-mini",
+		Messages:         []Message{{Role: "user", Content: "hi"}},
+		Temperature:      0.2,
+		MaxTokens:        32,
+		ReasoningEffort:  "off",
+		MaxThinkingToken: "512",
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+}
+
+func TestOpenAIClientSendsReasoningEffortNoneLiterally(t *testing.T) {
+	client := &Client{impl: &chatCompletionsClient{httpJSONClient: &httpJSONClient{
+		endpoint: "https://api.example.test/chat/completions",
+		apiKey:   "test-key",
+		headers:  map[string]string{},
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if payload["reasoning_effort"] != "none" {
+				t.Fatalf("expected reasoning_effort=none, got %#v", payload["reasoning_effort"])
 			}
 
 			body, err := json.Marshal(map[string]any{
@@ -245,6 +299,9 @@ func TestCodexClientUsesResponsesEndpointAndPreservesToolLoopState(t *testing.T)
 			if !ok || reasoning["effort"] != "high" {
 				t.Fatalf("unexpected reasoning payload %#v", payload["reasoning"])
 			}
+			if reasoning["max_thinking_tokens"] != float64(256) {
+				t.Fatalf("unexpected max_thinking_tokens in reasoning payload %#v", payload["reasoning"])
+			}
 			if r.Header.Get("OpenAI-Beta") != "responses=v1" {
 				t.Fatalf("expected OpenAI-Beta header to be preserved, got %q", r.Header.Get("OpenAI-Beta"))
 			}
@@ -344,9 +401,10 @@ func TestCodexClientUsesResponsesEndpointAndPreservesToolLoopState(t *testing.T)
 				Parameters:  map[string]any{"type": "object"},
 			},
 		}},
-		Temperature:     0.2,
-		MaxTokens:       64,
-		ReasoningEffort: "high",
+		Temperature:      0.2,
+		MaxTokens:        64,
+		ReasoningEffort:  "high",
+		MaxThinkingToken: "256",
 	})
 	if err != nil {
 		t.Fatalf("Chat returned error: %v", err)
@@ -547,7 +605,7 @@ func TestCodexClientRetriesWithStreamingWhenProviderRequiresIt(t *testing.T) {
 	}
 }
 
-func TestCodexClientOmitsReasoningPayloadWhenSetToNone(t *testing.T) {
+func TestCodexClientOmitsReasoningPayloadWhenSetToOff(t *testing.T) {
 	client := &Client{impl: &responsesClient{httpJSONClient: &httpJSONClient{
 		endpoint: "https://api.example.test/responses",
 		apiKey:   "test-key",
@@ -559,6 +617,57 @@ func TestCodexClientOmitsReasoningPayloadWhenSetToNone(t *testing.T) {
 			}
 			if _, ok := payload["reasoning"]; ok {
 				t.Fatalf("expected reasoning payload to be omitted, got %#v", payload["reasoning"])
+			}
+
+			body, err := json.Marshal(map[string]any{
+				"output": []map[string]any{
+					{
+						"type": "message",
+						"role": "assistant",
+						"content": []map[string]any{{
+							"type": "output_text",
+							"text": "ok",
+						}},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal response: %v", err)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(body)),
+			}, nil
+		})},
+	}}}
+
+	_, err := client.Chat(context.Background(), Request{
+		Model:            "gpt-5.4",
+		Messages:         []Message{{Role: "user", Content: "hi"}},
+		MaxTokens:        32,
+		ReasoningEffort:  "off",
+		MaxThinkingToken: "128",
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+}
+
+func TestCodexClientSendsReasoningPayloadWhenSetToNone(t *testing.T) {
+	client := &Client{impl: &responsesClient{httpJSONClient: &httpJSONClient{
+		endpoint: "https://api.example.test/responses",
+		apiKey:   "test-key",
+		headers:  map[string]string{},
+		httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			reasoning, ok := payload["reasoning"].(map[string]any)
+			if !ok || reasoning["effort"] != "none" {
+				t.Fatalf("expected reasoning.effort=none, got %#v", payload["reasoning"])
 			}
 
 			body, err := json.Marshal(map[string]any{

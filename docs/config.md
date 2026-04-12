@@ -118,7 +118,10 @@ Key fields:
   If `true`, image attachments are sent to the model as multimodal input as well as downloaded for tool use
 
 - `reasoning_effort`
-  Passed through when the provider supports it. If set to `none`, Element Orion omits the provider reasoning field entirely.
+  Passed through when the provider supports it. Use `off` to omit the provider reasoning field entirely, or `none` to send `none` literally.
+
+- `max_thinking_token`
+  Passed through when the provider supports it. Use `off` to omit it, or a non-negative integer to send a thinking budget.
 
 - `temperature`
   Normal completion temperature
@@ -161,6 +164,8 @@ Important behavior notes:
 - `max_tokens` is reply budget, so raising it lowers input budget
 - `inject_message_timestamps` adds time grounding to model-visible messages, but it can also encourage the model to echo timestamps if the prompt is sloppy
 - `reasoning_effort` only matters on providers that support it
+- `reasoning_effort: off` omits provider reasoning fields entirely, while `reasoning_effort: none` is sent literally as `none`
+- `max_thinking_token: off` omits the field; any non-negative integer is passed through
 - `vision_enabled` is the switch that turns image attachments into multimodal model input
 - custom `headers` can be useful for provider gateways or compatibility layers
 - `kimi-no-think` only affects `llm.api_type: openai` and injects `chat_template_kwargs.thinking: false` into the request body

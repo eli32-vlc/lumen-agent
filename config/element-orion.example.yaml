@@ -20,6 +20,7 @@ llm:
   model: gpt-5.4
   vision_enabled: false
   reasoning_effort: medium
+  max_thinking_token: off
   temperature: 0.4
   max_tokens: 3200
   context_window_tokens: 28000
