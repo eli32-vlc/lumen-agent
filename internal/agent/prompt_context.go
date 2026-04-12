@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -341,12 +342,18 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		model = "unknown"
 	}
 
+	hostName, err := os.Hostname()
+	if err != nil || strings.TrimSpace(hostName) == "" {
+		hostName = "unknown"
+	}
+
 	localNow := conversation.Now.In(time.Local)
 	lines := []string{
 		"Agent name: " + fallbackPromptValue(r.cfg.App.Name, "Element Orion"),
 		"Model: " + model,
 		"Provider: " + fallbackPromptValue(r.cfg.LLM.APIType, "unknown"),
 		"Provider base URL: " + sanitizePromptURL(r.cfg.LLM.BaseURL),
+		"API key source: " + promptAPIKeySource(r.cfg),
 		"Vision input: " + promptBoolStatus(r.cfg.LLM.VisionEnabled),
 		"Reasoning effort: " + fallbackPromptValue(r.cfg.LLM.ReasoningEffort, "default"),
 		"Temperature: " + fmt.Sprintf("%.2f", r.cfg.LLM.Temperature),
@@ -354,21 +361,37 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Context window tokens: " + strconv.Itoa(r.cfg.LLM.ContextWindowTokens),
 		"LLM timeout: " + fallbackPromptValue(r.cfg.LLM.Timeout, "default"),
 		"Request max attempts: " + strconv.Itoa(r.cfg.LLM.RequestMaxAttempts),
+		"Retry initial backoff: " + fallbackPromptValue(r.cfg.LLM.RetryInitialBackoff, "default"),
+		"Retry max backoff: " + fallbackPromptValue(r.cfg.LLM.RetryMaxBackoff, "default"),
+		"Custom request headers: " + strconv.Itoa(len(r.cfg.LLM.Headers)),
+		"Host: " + hostName,
+		"Runtime OS/arch: " + runtime.GOOS + "/" + runtime.GOARCH,
+		"Process ID: " + strconv.Itoa(os.Getpid()),
 		"Local timezone: " + localNow.Format("MST") + " (" + localNow.Location().String() + ")",
 		"UTC tracking timestamps: " + promptBoolStatus(r.cfg.LLM.InjectMessageTimestamps),
 		"Workspace root: " + fallbackPromptValue(r.cfg.App.WorkspaceRoot, "unset"),
 		"Session dir: " + fallbackPromptValue(r.cfg.App.SessionDir, "unset"),
 		"Memory dir: " + fallbackPromptValue(r.cfg.App.MemoryDir, "unset"),
 		"Load all memory shards: " + promptBoolStatus(r.cfg.App.LoadAllMemoryShards),
+		"Config file: " + fallbackPromptValue(r.cfg.SourcePath(), "unset"),
 		"Max agent loops: " + strconv.Itoa(r.cfg.App.MaxAgentLoops),
 		"Max tool calls per turn: " + strconv.Itoa(r.cfg.App.MaxToolCallsPerTurn),
 		"History compaction: " + promptHistoryCompactionSummary(r.cfg),
 		"Message timestamps: " + promptBoolStatus(r.cfg.LLM.InjectMessageTimestamps),
 		"Skills enabled: " + promptBoolStatus(r.cfg.Skills.Enabled),
+		"Skill roots: " + promptSkillRootsSummary(r.cfg),
 		"Exec shell: " + fallbackPromptValue(r.cfg.Tools.ExecShell, "unset"),
 		"Exec timeout: " + fallbackPromptValue(r.cfg.Tools.ExecTimeout, "default"),
+		"Max file read bytes: " + strconv.FormatInt(r.cfg.Tools.MaxFileBytes, 10),
+		"Max search results: " + strconv.Itoa(r.cfg.Tools.MaxSearchResults),
 		"Max command output bytes: " + strconv.Itoa(r.cfg.Tools.MaxCommandOutputBytes),
+		"Allowed exec commands: " + promptAllowedCommandsSummary(r.cfg),
+		"Dashboard: " + promptDashboardSummary(r.cfg),
+		"Log dir: " + fallbackPromptValue(r.cfg.LogDir(), "unset"),
 		"Discord direct messages: " + promptBoolStatus(r.cfg.Discord.AllowDirectMessages),
+		"Discord group direct messages: " + promptBoolStatus(r.cfg.Discord.AllowGroupDirectMessages),
+		"Discord allowed guilds: " + strconv.Itoa(len(r.cfg.Discord.AllowedGuildIDs)),
+		"Discord allowed outbound channels: " + strconv.Itoa(len(r.cfg.Discord.AllowedOutboundChannelIDs)),
 		"Discord guild session scope: " + fallbackPromptValue(r.cfg.Discord.GuildSessionScope, "channel"),
 		"Discord reply-to-message: " + promptBoolStatus(r.cfg.Discord.ReplyToMessage),
 		"Incoming attachment downloads: " + promptAttachmentSummary(r.cfg),
@@ -394,6 +417,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 	if mcpSummary != "" {
 		lines = append(lines, "Enabled MCP servers: "+mcpSummary)
 	}
+	lines = append(lines, "Configured MCP server count: "+strconv.Itoa(len(r.cfg.MCP.Servers)))
 	if heartbeatLines := r.heartbeatStatePromptLines(); len(heartbeatLines) > 0 {
 		lines = append(lines, heartbeatLines...)
 	}
@@ -428,12 +452,60 @@ func promptHistoryCompactionSummary(cfg config.Config) string {
 	)
 }
 
+func promptAPIKeySource(cfg config.Config) string {
+	switch {
+	case strings.TrimSpace(cfg.LLM.APIKey) != "":
+		return "inline config"
+	case strings.TrimSpace(cfg.LLM.APIKeyEnv) != "":
+		return "env:" + strings.TrimSpace(cfg.LLM.APIKeyEnv)
+	default:
+		return "unset"
+	}
+}
+
 func promptAttachmentSummary(cfg config.Config) string {
 	path := fallbackPromptValue(cfg.Discord.IncomingAttachmentsDir, "unset")
 	if !cfg.Discord.DownloadIncomingAttachments {
 		return "images only -> " + path + " (other attachments disabled)"
 	}
 	return "all attachments -> " + path
+}
+
+func promptSkillRootsSummary(cfg config.Config) string {
+	roots := []string{}
+	if value := strings.TrimSpace(cfg.Skills.Load.BundledDir); value != "" {
+		roots = append(roots, "bundled="+value)
+	}
+	if value := strings.TrimSpace(cfg.Skills.Load.UserDir); value != "" {
+		roots = append(roots, "user="+value)
+	}
+	for _, dir := range cfg.Skills.Load.ExtraDirs {
+		if value := strings.TrimSpace(dir); value != "" {
+			roots = append(roots, "extra="+value)
+		}
+	}
+	if len(roots) == 0 {
+		return "default discovery only"
+	}
+	return strings.Join(roots, ", ")
+}
+
+func promptAllowedCommandsSummary(cfg config.Config) string {
+	if len(cfg.Tools.AllowedCommands) == 0 {
+		return "all shell commands allowed"
+	}
+	return strconv.Itoa(len(cfg.Tools.AllowedCommands)) + " allowlisted"
+}
+
+func promptDashboardSummary(cfg config.Config) string {
+	if !cfg.Dashboard.Enabled {
+		return "disabled"
+	}
+	path := strings.TrimSpace(cfg.Dashboard.Path)
+	if path == "" {
+		path = "/"
+	}
+	return "enabled (" + fallbackPromptValue(cfg.Dashboard.ListenAddr, "default listen addr") + ", path=" + path + ")"
 }
 
 func promptBackgroundTaskSummary(cfg config.Config) string {
