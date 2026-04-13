@@ -179,6 +179,7 @@ type DreamModeConfig struct {
 	Every        string                     `yaml:"every"`
 	Model        string                     `yaml:"model"`
 	LightContext bool                       `yaml:"light_context"`
+	UseIndicator bool                       `yaml:"use_indicator"`
 	SleepHours   HeartbeatActiveHoursConfig `yaml:"sleep_hours"`
 }
 
@@ -369,6 +370,7 @@ func defaultConfig() Config {
 			Every:        "6h",
 			Model:        "",
 			LightContext: false,
+			UseIndicator: false,
 			SleepHours:   HeartbeatActiveHoursConfig{},
 		},
 		EventWebhook: EventWebhookConfig{

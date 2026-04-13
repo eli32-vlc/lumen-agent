@@ -352,6 +352,7 @@ func TestDreamModePromptIncludesDreamInstructionsAndMetadata(t *testing.T) {
 			Every:        "6h",
 			Model:        "gpt-dream",
 			LightContext: true,
+			UseIndicator: true,
 			SleepHours: config.HeartbeatActiveHoursConfig{
 				Timezone: "Australia/Brisbane",
 				Start:    "23:00",
@@ -375,6 +376,7 @@ func TestDreamModePromptIncludesDreamInstructionsAndMetadata(t *testing.T) {
 		"Dream mode schedule: 6h",
 		"Dream mode model: gpt-dream",
 		"Dream mode light context: enabled",
+		"Dream mode typing indicator: enabled",
 		"Dream mode sleep hours: 23:00-06:00 Australia/Brisbane",
 	} {
 		if !strings.Contains(prompt, snippet) {

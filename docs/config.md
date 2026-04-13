@@ -400,6 +400,7 @@ Key fields:
 - `every`
 - `model`
 - `light_context`
+- `use_indicator`
 - `sleep_hours`
 
 Important behavior:
@@ -407,6 +408,7 @@ Important behavior:
 - dream mode does not need a Discord delivery target
 - it runs quietly during the configured sleep window
 - it uses the configured or inherited model to review and reorganize memory files
+- `use_indicator: true` shows a Discord typing indicator in the configured heartbeat target channel when one exists, but still sends no message
 - `light_context: true` keeps the startup prompt slimmer, but the dream run can still inspect memory files with tools
 
 #### `dream_mode.sleep_hours`

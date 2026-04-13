@@ -36,6 +36,12 @@ func (s *Service) runDreamLoop(ctx context.Context) {
 }
 
 func (s *Service) runDreamMaintenance(ctx context.Context) {
+	stopTyping := func() {}
+	if s.cfg.DreamMode.UseIndicator {
+		stopTyping = s.startTyping(strings.TrimSpace(s.cfg.Heartbeat.Target.ChannelID))
+	}
+	defer stopTyping()
+
 	_, err := s.runner.Run(ctx, nil, buildDreamPrompt(), agent.ConversationContext{
 		IsDirectMessage: true,
 		IsDreamMode:     true,

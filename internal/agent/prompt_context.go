@@ -369,6 +369,7 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 			"Dream mode schedule: "+durationOrDisabled(r.cfg.DreamMode.Every),
 			"Dream mode model: "+fallbackPromptValue(r.cfg.DreamModeModel(), "inherit"),
 			"Dream mode light context: "+promptBoolStatus(r.cfg.DreamMode.LightContext),
+			"Dream mode typing indicator: "+promptBoolStatus(r.cfg.DreamMode.UseIndicator),
 			"Dream mode sleep hours: "+promptDreamSleepHoursSummary(r.cfg),
 		)
 	}

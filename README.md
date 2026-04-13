@@ -571,6 +571,7 @@ dream_mode:
   every: 6h
   model: ""
   light_context: false
+  use_indicator: false
   sleep_hours:
     timezone: Australia/Brisbane
     start: "23:00"
