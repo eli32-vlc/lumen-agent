@@ -50,7 +50,11 @@ func (s *Service) runDreamMaintenance(ctx context.Context) {
 		Now:             time.Now(),
 	}, func(event agent.Event) {})
 	if err != nil {
-		s.audit.Write("error", "", map[string]any{"op": "dream_mode_run", "error": err.Error()})
+		s.audit.Write("error", "", map[string]any{
+			"op":    "dream_mode_run",
+			"model": s.cfg.DreamModeModel(),
+			"error": err.Error(),
+		})
 		return
 	}
 	s.audit.Write("dream_mode", "", map[string]any{
