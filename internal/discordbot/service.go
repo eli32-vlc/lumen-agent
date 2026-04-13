@@ -617,14 +617,9 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	defer stopTyping()
 
 	s.audit.Write("turn_start", state.ID, map[string]any{
-		"kind":        string(prompt.Kind),
-		"channel_id":  prompt.ChannelID,
-		"guild_id":    prompt.GuildID,
-		"author_id":   prompt.AuthorID,
-		"message_id":  prompt.MessageID,
-		"content":     prompt.Content,
-		"raw_content": prompt.RawContent,
-		"user_parts":  cloneContentParts(prompt.UserParts),
+		"kind":       string(prompt.Kind),
+		"channel_id": prompt.ChannelID,
+		"guild_id":   prompt.GuildID,
 	})
 
 	runCtx := tools.WithDiscordToolContext(state.Context, tools.DiscordToolContext{
@@ -1252,47 +1247,18 @@ func (s *Service) logAgentEvent(state *sessionState, event agent.Event) {
 			"success":     event.Success,
 		})
 	case agent.EventModelDone:
-		data := map[string]any{
+		s.audit.Write("model_done", state.ID, map[string]any{
 			"duration_ms": event.DurationMS,
 			"tokens":      event.TokenCount,
-		}
-		for key, value := range event.Data {
-			data[key] = value
-		}
-		if response, ok := event.Data["response"].(map[string]any); ok {
-			if reasoningTokens, ok := response["reasoning_tokens"]; ok {
-				data["reasoning_tokens"] = reasoningTokens
-			}
-			if usage, ok := response["usage"]; ok {
-				data["usage"] = usage
-			}
-			if requestPayload, ok := response["request_payload"]; ok {
-				data["request_payload"] = requestPayload
-			}
-			if rawResponse, ok := response["raw_response"]; ok {
-				data["raw_response"] = rawResponse
-			}
-		}
-		s.audit.Write("model_done", state.ID, data)
+		})
 	case agent.EventStatus:
-		data := map[string]any{"message": event.Message}
-		if strings.TrimSpace(event.Detail) != "" {
-			data["detail"] = event.Detail
-		}
-		if strings.TrimSpace(event.FullDetail) != "" {
-			data["full_detail"] = event.FullDetail
-		}
-		for key, value := range event.Data {
-			data[key] = value
-		}
-		s.audit.Write("status", state.ID, data)
+		s.audit.Write("status", state.ID, map[string]any{"message": event.Message})
 	case agent.EventAssistant:
 		if strings.TrimSpace(event.Message) == "" || strings.TrimSpace(event.Message) == agent.NoReplyToken {
 			return
 		}
 		s.audit.Write("assistant_reply", state.ID, map[string]any{
-			"message": event.Message,
-			"length":  len(event.Message),
+			"length": len(event.Message),
 		})
 	}
 }

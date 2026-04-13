@@ -91,28 +91,15 @@ func (s *Service) logDreamEvent(event agent.Event) {
 			"success":     event.Success,
 		})
 	case agent.EventModelDone:
-		data := map[string]any{
+		s.audit.Write("dream_model_done", "", map[string]any{
 			"duration_ms": event.DurationMS,
 			"tokens":      event.TokenCount,
 			"model":       s.cfg.DreamModeModel(),
-		}
-		for key, value := range event.Data {
-			data[key] = value
-		}
-		s.audit.Write("dream_model_done", "", data)
+		})
 	case agent.EventStatus:
 		data := map[string]any{
 			"message": event.Message,
 			"model":   s.cfg.DreamModeModel(),
-		}
-		if strings.TrimSpace(event.Detail) != "" {
-			data["detail"] = event.Detail
-		}
-		if strings.TrimSpace(event.FullDetail) != "" {
-			data["full_detail"] = event.FullDetail
-		}
-		for key, value := range event.Data {
-			data[key] = value
 		}
 		s.audit.Write("dream_status", "", data)
 	case agent.EventAssistant:
@@ -120,9 +107,8 @@ func (s *Service) logDreamEvent(event agent.Event) {
 			return
 		}
 		s.audit.Write("dream_assistant", "", map[string]any{
-			"message": event.Message,
-			"length":  len(event.Message),
-			"model":   s.cfg.DreamModeModel(),
+			"length": len(event.Message),
+			"model":  s.cfg.DreamModeModel(),
 		})
 	}
 }

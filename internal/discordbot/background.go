@@ -288,19 +288,11 @@ func (s *Service) logBackgroundTaskEvent(taskID string, event agent.Event) {
 	case agent.EventToolFinished:
 		s.audit.Write("background_tool_done", taskID, map[string]any{"tool": event.ToolName, "detail": event.Detail, "full_detail": event.FullDetail, "duration_ms": event.DurationMS, "success": event.Success})
 	case agent.EventModelDone:
-		data := map[string]any{"duration_ms": event.DurationMS, "tokens": event.TokenCount}
-		for key, value := range event.Data {
-			data[key] = value
-		}
-		s.audit.Write("background_model_done", taskID, data)
+		s.audit.Write("background_model_done", taskID, map[string]any{"duration_ms": event.DurationMS, "tokens": event.TokenCount})
 	case agent.EventStatus:
-		data := map[string]any{"message": event.Message, "detail": event.Detail, "full_detail": event.FullDetail}
-		for key, value := range event.Data {
-			data[key] = value
-		}
-		s.audit.Write("background_status", taskID, data)
+		s.audit.Write("background_status", taskID, map[string]any{"message": event.Message, "detail": event.Detail, "full_detail": event.FullDetail})
 	case agent.EventAssistant:
-		s.audit.Write("background_assistant", taskID, map[string]any{"message": event.Message})
+		s.audit.Write("background_assistant", taskID, map[string]any{"length": len(event.Message)})
 	}
 }
 
