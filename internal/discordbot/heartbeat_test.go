@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"element-orion/internal/agent"
+	"element-orion/internal/auditlog"
 	"element-orion/internal/config"
 )
 
@@ -92,6 +94,44 @@ func TestBuildDreamPromptMentionsMemoryMaintenance(t *testing.T) {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected dream prompt to contain %q", snippet)
 		}
+	}
+}
+
+func TestLogDreamEventWritesRetryStatus(t *testing.T) {
+	logDir := t.TempDir()
+	logger, err := auditlog.New(logDir)
+	if err != nil {
+		t.Fatalf("new audit logger: %v", err)
+	}
+	defer logger.Close()
+
+	service := &Service{
+		cfg:   config.Config{DreamMode: config.DreamModeConfig{Model: "gpt-dream"}},
+		audit: logger,
+	}
+
+	service.logDreamEvent(agent.Event{
+		Kind:    agent.EventStatus,
+		Message: "Model request hit transient error. Retrying (2/3)",
+	})
+
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		t.Fatalf("read log dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected at least one audit log file")
+	}
+
+	data, err := os.ReadFile(filepath.Join(logDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read audit log: %v", err)
+	}
+	if !strings.Contains(string(data), `"kind":"dream_status"`) {
+		t.Fatalf("expected dream_status entry, got:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), `"model":"gpt-dream"`) {
+		t.Fatalf("expected dream model in log entry, got:\n%s", string(data))
 	}
 }
 

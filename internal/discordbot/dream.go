@@ -48,7 +48,9 @@ func (s *Service) runDreamMaintenance(ctx context.Context) {
 		LightContext:    s.cfg.DreamMode.LightContext,
 		ModelOverride:   s.cfg.DreamModeModel(),
 		Now:             time.Now(),
-	}, func(event agent.Event) {})
+	}, func(event agent.Event) {
+		s.logDreamEvent(event)
+	})
 	if err != nil {
 		s.audit.Write("error", "", map[string]any{
 			"op":    "dream_mode_run",
@@ -61,6 +63,59 @@ func (s *Service) runDreamMaintenance(ctx context.Context) {
 		"op":    "dream_mode_run",
 		"model": s.cfg.DreamModeModel(),
 	})
+}
+
+func (s *Service) logDreamEvent(event agent.Event) {
+	switch event.Kind {
+	case agent.EventToolStarted:
+		s.audit.Write("dream_tool_start", "", map[string]any{
+			"tool":        event.ToolName,
+			"detail":      event.Detail,
+			"full_detail": event.FullDetail,
+		})
+	case agent.EventToolFinished:
+		s.audit.Write("dream_tool_done", "", map[string]any{
+			"tool":        event.ToolName,
+			"detail":      event.Detail,
+			"full_detail": event.FullDetail,
+			"duration_ms": event.DurationMS,
+			"success":     event.Success,
+		})
+	case agent.EventModelDone:
+		data := map[string]any{
+			"duration_ms": event.DurationMS,
+			"tokens":      event.TokenCount,
+			"model":       s.cfg.DreamModeModel(),
+		}
+		for key, value := range event.Data {
+			data[key] = value
+		}
+		s.audit.Write("dream_model_done", "", data)
+	case agent.EventStatus:
+		data := map[string]any{
+			"message": event.Message,
+			"model":   s.cfg.DreamModeModel(),
+		}
+		if strings.TrimSpace(event.Detail) != "" {
+			data["detail"] = event.Detail
+		}
+		if strings.TrimSpace(event.FullDetail) != "" {
+			data["full_detail"] = event.FullDetail
+		}
+		for key, value := range event.Data {
+			data[key] = value
+		}
+		s.audit.Write("dream_status", "", data)
+	case agent.EventAssistant:
+		if strings.TrimSpace(event.Message) == "" || strings.TrimSpace(event.Message) == agent.NoReplyToken {
+			return
+		}
+		s.audit.Write("dream_assistant", "", map[string]any{
+			"message": event.Message,
+			"length":  len(event.Message),
+			"model":   s.cfg.DreamModeModel(),
+		})
+	}
 }
 
 func buildDreamPrompt() string {
