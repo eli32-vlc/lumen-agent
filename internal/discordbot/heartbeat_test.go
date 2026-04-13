@@ -83,11 +83,19 @@ func TestWithinDreamSleepHoursSupportsWraparound(t *testing.T) {
 }
 
 func TestBuildDreamPromptMentionsMemoryMaintenance(t *testing.T) {
-	prompt := buildDreamPrompt()
+	cfg := config.Config{App: config.AppConfig{
+		WorkspaceRoot: "/workspace/lumen",
+		MemoryDir:     "/workspace/lumen/.element-orion/memory",
+	}}
+	prompt := buildDreamPrompt(cfg, time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC))
 	for _, snippet := range []string{
 		"dream mode maintenance run",
 		"review the configured memory directory",
+		"Must organize the memory shards",
+		"Compact them",
 		"Read the memory files",
+		"/workspace/lumen",
+		"/workspace/lumen/.element-orion/memory/MEMORY.md",
 		"Verify every saved memory file",
 		"DREAM_OK",
 	} {

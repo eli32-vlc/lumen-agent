@@ -2,10 +2,12 @@ package discordbot
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"element-orion/internal/agent"
+	"element-orion/internal/config"
 )
 
 const dreamOKToken = "DREAM_OK"
@@ -49,7 +51,8 @@ func (s *Service) runDreamMaintenance(ctx context.Context) {
 		ModelOverride:   s.cfg.DreamModeModel(),
 		Now:             time.Now(),
 	}
-	estimate := s.runner.EstimateContextUsage(nil, conversation, buildDreamPrompt(), nil)
+	dreamPrompt := buildDreamPrompt(s.cfg, conversation.Now)
+	estimate := s.runner.EstimateContextUsage(nil, conversation, dreamPrompt, nil)
 	s.audit.Write("dream_context", "", map[string]any{
 		"model":                s.cfg.DreamModeModel(),
 		"system_prompt_tokens": estimate.SystemPromptTokens,
@@ -57,7 +60,7 @@ func (s *Service) runDreamMaintenance(ctx context.Context) {
 		"input_budget_tokens":  estimate.InputBudgetTokens,
 	})
 
-	_, err := s.runner.Run(ctx, nil, buildDreamPrompt(), conversation, func(event agent.Event) {
+	_, err := s.runner.Run(ctx, nil, dreamPrompt, conversation, func(event agent.Event) {
 		s.logDreamEvent(event)
 	})
 	if err != nil {
@@ -113,16 +116,60 @@ func (s *Service) logDreamEvent(event agent.Event) {
 	}
 }
 
-func buildDreamPrompt() string {
-	return strings.Join([]string{
+func buildDreamPrompt(cfg config.Config, now time.Time) string {
+	workspaceRoot := strings.TrimSpace(cfg.App.WorkspaceRoot)
+	memoryRoot := strings.TrimSpace(cfg.App.MemoryDir)
+	if memoryRoot == "" && workspaceRoot != "" {
+		memoryRoot = filepath.Join(workspaceRoot, "memory")
+	}
+
+	memoryPaths := []string{}
+	if memoryRoot != "" {
+		memoryPaths = append(memoryPaths,
+			"Primary long-term memory file: "+filepath.Join(memoryRoot, "MEMORY.md")+".",
+			"Memory shard directory to organize: "+memoryRoot+".",
+			"Current and recent shard paths usually include: "+filepath.Join(memoryRoot, agentMemoryShardFileName(now))+" and "+filepath.Join(memoryRoot, agentMemoryShardFileName(now.Add(-12*time.Hour)))+".",
+			"During this run, inspect the actual markdown memory files under "+memoryRoot+" and organize the shard set as needed.",
+		)
+	}
+
+	workspacePaths := []string{}
+	if workspaceRoot != "" {
+		workspacePaths = append(workspacePaths,
+			"Workspace root on disk: "+workspaceRoot+".",
+			"Important workspace files may include: "+
+				filepath.Join(workspaceRoot, "BOOTSTRAP.md")+", "+
+				filepath.Join(workspaceRoot, "IDENTITY.md")+", "+
+				filepath.Join(workspaceRoot, "USER.md")+", "+
+				filepath.Join(workspaceRoot, "SOUL.md")+", "+
+				filepath.Join(workspaceRoot, "CODEBASE.md")+", "+
+				filepath.Join(workspaceRoot, "TASKS.md")+".",
+		)
+	}
+
+	lines := []string{
 		"This is a dream mode maintenance run.",
 		"Use this quiet window to review the configured memory directory and improve it.",
+		"Must organize the memory shards.",
+		"Compact them.",
 		"Read the memory files, organize duplicated or stale details, compact weak summaries, and preserve concrete facts that matter.",
+		"Treat the configured workspace files and memory files as exact disk locations, not abstractions.",
 		"Prefer small truthful edits over broad rewrites.",
 		"Verify every saved memory file after editing it.",
 		"If everything is already in good shape, reply with DREAM_OK.",
 		"If you make verified memory improvements, reply with DREAM_OK when finished.",
-	}, " ")
+	}
+	lines = append(lines, workspacePaths...)
+	lines = append(lines, memoryPaths...)
+	return strings.Join(lines, " ")
+}
+
+func agentMemoryShardFileName(now time.Time) string {
+	period := "AM"
+	if now.Hour() >= 12 {
+		period = "PM"
+	}
+	return now.Format("2006-01-02") + "-" + period + ".md"
 }
 
 func (s *Service) withinDreamSleepHours(now time.Time) bool {

@@ -372,6 +372,8 @@ func TestDreamModePromptIncludesDreamInstructionsAndMetadata(t *testing.T) {
 	for _, snippet := range []string{
 		"Dream mode:",
 		"Dream mode runs during configured sleep hours",
+		"Organize the memory shards deliberately",
+		"Compact memory shards when possible",
 		"Execution mode: dream mode",
 		"Dream mode enabled: enabled",
 		"Dream mode schedule: 6h",
@@ -379,6 +381,10 @@ func TestDreamModePromptIncludesDreamInstructionsAndMetadata(t *testing.T) {
 		"Dream mode light context: enabled",
 		"Dream mode typing indicator: enabled",
 		"Dream mode sleep hours: 23:00-06:00 Australia/Brisbane",
+		"Workspace files root on disk: " + workspace,
+		"Memory files root on disk: " + memoryRoot,
+		"Workspace file paths: " + filepath.Join(workspace, "BOOTSTRAP.md"),
+		"Memory file paths: " + filepath.Join(memoryRoot, "MEMORY.md"),
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)

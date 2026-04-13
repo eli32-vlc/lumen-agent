@@ -152,6 +152,8 @@ Dream mode:
 - Dream mode runs during configured sleep hours as a quiet memory-maintenance pass.
 - In dream mode, do not act like a live chat partner. Focus on reviewing and improving the memory files.
 - Read through the configured memory directory, looking for duplication, stale assumptions, weak summaries, and easy opportunities to compact or organize the files.
+- Organize the memory shards deliberately. Merge duplicated facts, remove stale fragments, and keep the shard set easy to scan.
+- Compact memory shards when possible. Preserve concrete facts and continuity, but reduce fluff, repetition, and low-value wording.
 - Preserve concrete facts and continuity. Prefer truthful cleanup over stylistic rewrites.
 - When you edit a memory file, verify the saved content before finishing.
 - If memory already looks healthy, return DREAM_OK.
@@ -318,6 +320,8 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 	}
 
 	localNow := conversation.Now.In(time.Local)
+	workspaceRoot := strings.TrimSpace(r.cfg.App.WorkspaceRoot)
+	memoryRoot := configuredMemoryRoot(r.cfg)
 	lines := []string{
 		"Agent name: " + fallbackPromptValue(r.cfg.App.Name, "Element Orion"),
 		"Model: " + model,
@@ -329,8 +333,12 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Max completion tokens: " + strconv.Itoa(r.cfg.LLM.MaxTokens),
 		"Context window tokens: " + strconv.Itoa(r.cfg.LLM.ContextWindowTokens),
 		"Local timezone: " + localNow.Format("MST") + " (" + localNow.Location().String() + ")",
-		"Workspace root: " + fallbackPromptValue(r.cfg.App.WorkspaceRoot, "unset"),
-		"Memory dir: " + fallbackPromptValue(r.cfg.App.MemoryDir, "unset"),
+		"Workspace root: " + fallbackPromptValue(workspaceRoot, "unset"),
+		"Workspace files root on disk: " + fallbackPromptValue(workspaceRoot, "unset"),
+		"Memory dir: " + fallbackPromptValue(memoryRoot, "unset"),
+		"Memory files root on disk: " + fallbackPromptValue(memoryRoot, "unset"),
+		"Workspace file paths: " + promptWorkspaceFilePathSummary(workspaceRoot),
+		"Memory file paths: " + promptMemoryFilePathSummary(r.cfg, conversation),
 		"Load all memory shards: " + promptBoolStatus(r.cfg.App.LoadAllMemoryShards),
 		"Max agent loops: " + strconv.Itoa(r.cfg.App.MaxAgentLoops),
 		"Max tool calls per turn: " + strconv.Itoa(r.cfg.App.MaxToolCallsPerTurn),
@@ -538,6 +546,41 @@ func promptMCPServerSummary(cfg config.Config) string {
 	}
 	slices.Sort(names)
 	return strings.Join(names, ", ")
+}
+
+func promptWorkspaceFilePathSummary(workspaceRoot string) string {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return "unset"
+	}
+
+	paths := []string{
+		filepath.Join(workspaceRoot, "BOOTSTRAP.md"),
+		filepath.Join(workspaceRoot, "IDENTITY.md"),
+		filepath.Join(workspaceRoot, "USER.md"),
+		filepath.Join(workspaceRoot, "SOUL.md"),
+		filepath.Join(workspaceRoot, "CODEBASE.md"),
+		filepath.Join(workspaceRoot, "TASKS.md"),
+	}
+	return strings.Join(paths, ", ")
+}
+
+func promptMemoryFilePathSummary(cfg config.Config, conversation ConversationContext) string {
+	memoryRoot := configuredMemoryRoot(cfg)
+	if strings.TrimSpace(memoryRoot) == "" {
+		return "unset"
+	}
+
+	paths := []string{filepath.Join(memoryRoot, "MEMORY.md")}
+	if conversation.IsDreamMode || cfg.App.LoadAllMemoryShards {
+		paths = append(paths, filepath.Join(memoryRoot, "*.md"))
+	} else {
+		for _, fileName := range memoryShardFileNames(conversation.Now) {
+			paths = append(paths, filepath.Join(memoryRoot, fileName))
+		}
+	}
+
+	return strings.Join(paths, ", ")
 }
 
 func durationOrDisabled(value string) string {
