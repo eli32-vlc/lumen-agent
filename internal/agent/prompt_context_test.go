@@ -336,6 +336,7 @@ func TestDreamModePromptIncludesDreamInstructionsAndMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	memoryRoot := filepath.Join(workspace, ".memory")
 	writeTestFile(t, memoryRoot, "MEMORY.md", "curated memory")
+	writeTestFile(t, memoryRoot, "2026-03-12-PM.md", "current shard")
 
 	runner := &Runner{cfg: config.Config{
 		App: config.AppConfig{
@@ -381,6 +382,14 @@ func TestDreamModePromptIncludesDreamInstructionsAndMetadata(t *testing.T) {
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"[BEGIN MEMORY.md]",
+		"[BEGIN memory/2026-03-12-PM.md]",
+	} {
+		if strings.Contains(prompt, snippet) {
+			t.Fatalf("did not expect dream mode prompt to preload memory section %q", snippet)
 		}
 	}
 }

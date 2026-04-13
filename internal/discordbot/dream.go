@@ -42,13 +42,22 @@ func (s *Service) runDreamMaintenance(ctx context.Context) {
 	}
 	defer stopTyping()
 
-	_, err := s.runner.Run(ctx, nil, buildDreamPrompt(), agent.ConversationContext{
+	conversation := agent.ConversationContext{
 		IsDirectMessage: true,
 		IsDreamMode:     true,
 		LightContext:    s.cfg.DreamMode.LightContext,
 		ModelOverride:   s.cfg.DreamModeModel(),
 		Now:             time.Now(),
-	}, func(event agent.Event) {
+	}
+	estimate := s.runner.EstimateContextUsage(nil, conversation, buildDreamPrompt(), nil)
+	s.audit.Write("dream_context", "", map[string]any{
+		"model":                s.cfg.DreamModeModel(),
+		"system_prompt_tokens": estimate.SystemPromptTokens,
+		"total_input_tokens":   estimate.TotalInputTokens,
+		"input_budget_tokens":  estimate.InputBudgetTokens,
+	})
+
+	_, err := s.runner.Run(ctx, nil, buildDreamPrompt(), conversation, func(event agent.Event) {
 		s.logDreamEvent(event)
 	})
 	if err != nil {

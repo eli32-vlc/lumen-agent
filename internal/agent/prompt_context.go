@@ -625,6 +625,10 @@ func (r *Runner) workspacePromptSections(conversation ConversationContext) []pro
 		sections = append(sections, section)
 	}
 
+	if conversation.IsDreamMode {
+		return sections
+	}
+
 	if conversation.IsHeartbeat {
 		if section, ok := loadHeartbeatPromptSection(r.cfg.App.WorkspaceRoot); ok {
 			sections = append(sections, section)
