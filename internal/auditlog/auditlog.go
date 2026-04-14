@@ -8,29 +8,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 )
 
 const retainDays = 2
-
-const redactedValue = "[redacted]"
-
-var redactedKeys = []string{
-	"message",
-	"messages",
-	"content",
-	"raw_content",
-	"detail",
-	"full_detail",
-	"user_parts",
-	"parts",
-	"tool_calls",
-	"response_items",
-	"request_payload",
-	"raw_response",
-}
 
 // Entry is a single log record. Extra fields are in Data.
 type Entry struct {
@@ -70,7 +52,7 @@ func (l *Logger) Write(kind string, sessionID string, data map[string]any) {
 		Time:      now.Format(time.RFC3339),
 		Kind:      kind,
 		SessionID: sessionID,
-		Data:      sanitizeAuditData(data),
+		Data:      data,
 	}
 
 	line, err := json.Marshal(entry)
@@ -86,41 +68,6 @@ func (l *Logger) Write(kind string, sessionID string, data map[string]any) {
 	}
 
 	_, _ = l.file.Write(append(line, '\n'))
-}
-
-func sanitizeAuditData(data map[string]any) map[string]any {
-	if len(data) == 0 {
-		return data
-	}
-
-	sanitized := make(map[string]any, len(data))
-	for key, value := range data {
-		sanitized[key] = sanitizeAuditValue(key, value)
-	}
-	return sanitized
-}
-
-func sanitizeAuditValue(key string, value any) any {
-	if slices.Contains(redactedKeys, key) {
-		return redactedValue
-	}
-
-	switch typed := value.(type) {
-	case map[string]any:
-		nested := make(map[string]any, len(typed))
-		for nestedKey, nestedValue := range typed {
-			nested[nestedKey] = sanitizeAuditValue(nestedKey, nestedValue)
-		}
-		return nested
-	case []any:
-		items := make([]any, len(typed))
-		for index, item := range typed {
-			items[index] = sanitizeAuditValue("", item)
-		}
-		return items
-	default:
-		return value
-	}
 }
 
 // Close flushes and closes the current file.
