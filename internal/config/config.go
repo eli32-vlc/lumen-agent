@@ -46,6 +46,7 @@ type AppConfig struct {
 	MaxAgentLoops       int                        `yaml:"max_agent_loops"`
 	MaxToolCallsPerTurn int                        `yaml:"max_tool_calls_per_turn"`
 	HistoryCompaction   AppHistoryCompactionConfig `yaml:"history_compaction"`
+	SecretsPath         string                     `yaml:"secrets_path"`
 }
 
 type AppHistoryCompactionConfig struct {
@@ -420,6 +421,16 @@ func (c *Config) resolvePaths() error {
 		return fmt.Errorf("resolve app.memory_dir: %w", err)
 	}
 	c.App.MemoryDir = memoryDir
+
+	c.App.SecretsPath = strings.TrimSpace(c.App.SecretsPath)
+	if c.App.SecretsPath == "" {
+		c.App.SecretsPath = filepath.Join(c.App.WorkspaceRoot, ".lumen", "secrets.json")
+	}
+	secretsPath, err := absFromBase(configDir, c.App.SecretsPath)
+	if err != nil {
+		return fmt.Errorf("resolve app.secrets_path: %w", err)
+	}
+	c.App.SecretsPath = secretsPath
 
 	if strings.TrimSpace(c.App.Name) == "" {
 		c.App.Name = "Element Orion"

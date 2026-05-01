@@ -33,3 +33,51 @@ func TestNormalizeSchemaConvertsNilRequiredToEmptyArray(t *testing.T) {
 		t.Fatalf("expected empty required array, got %#v", required)
 	}
 }
+
+func TestRegistry_IsProtectedPath(t *testing.T) {
+	r := &Registry{
+		secretsPath: "/home/user/workspace/.lumen/secrets.json",
+	}
+
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		{"/home/user/workspace/.lumen/secrets.json", true},
+		{"/home/user/workspace/.lumen/other.json", false},
+		{"/home/user/workspace/secrets.json", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := r.isProtectedPath(tt.path); got != tt.expected {
+				t.Errorf("isProtectedPath() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRegistry_PathTouchesProtectedPath(t *testing.T) {
+	r := &Registry{
+		secretsPath: "/home/user/workspace/.lumen/secrets.json",
+	}
+
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		{"/home/user/workspace/.lumen/secrets.json", true},
+		{"/home/user/workspace/.lumen", true},
+		{"/home/user/workspace", true},
+		{"/home/user/workspace/src", false},
+		{"/home/user/workspace/.lumen/other.json", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := r.pathTouchesProtectedPath(tt.path); got != tt.expected {
+				t.Errorf("pathTouchesProtectedPath() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}

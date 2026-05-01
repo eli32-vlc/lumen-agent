@@ -256,34 +256,43 @@ func lastNonEmptyLine(output string) string {
 }
 
 func (r *Registry) blockedCommandReference(command string) string {
-	protected := r.protectedConfigPath()
-	if protected == "" {
-		return ""
-	}
-
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return ""
 	}
 
-	candidates := []string{
-		protected,
-		filepath.ToSlash(protected),
-		filepath.Base(protected),
+	protectedPaths := []string{}
+	if p := r.protectedConfigPath(); p != "" {
+		protectedPaths = append(protectedPaths, p)
+	}
+	if r.secretsPath != "" {
+		protectedPaths = append(protectedPaths, r.secretsPath)
 	}
 
-	if rel, err := filepath.Rel(r.root, protected); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		candidates = append(candidates, rel, filepath.ToSlash(rel))
+	if len(protectedPaths) == 0 {
+		return ""
 	}
 
 	lowerCommand := strings.ToLower(command)
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
+	for _, protected := range protectedPaths {
+		candidates := []string{
+			protected,
+			filepath.ToSlash(protected),
+			filepath.Base(protected),
 		}
-		if strings.Contains(lowerCommand, strings.ToLower(candidate)) {
-			return candidate
+
+		if rel, err := filepath.Rel(r.root, protected); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			candidates = append(candidates, rel, filepath.ToSlash(rel))
+		}
+
+		for _, candidate := range candidates {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" {
+				continue
+			}
+			if strings.Contains(lowerCommand, strings.ToLower(candidate)) {
+				return candidate
+			}
 		}
 	}
 

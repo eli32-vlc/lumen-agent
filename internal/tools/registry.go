@@ -36,6 +36,7 @@ type Registry struct {
 	scheduledWakeups ScheduledWakeupManager
 	sandboxes        SandboxManager
 	locks            *resourceLockManager
+	secretsPath      string
 }
 
 func NewRegistry(cfg config.Config) (*Registry, error) {
@@ -55,7 +56,8 @@ func NewRegistry(cfg config.Config) (*Registry, error) {
 		rssClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		locks: newResourceLockManager(),
+		locks:       newResourceLockManager(),
+		secretsPath: cfg.App.SecretsPath,
 	}
 
 	registry.registerFilesystemTools()
@@ -217,16 +219,25 @@ func (r *Registry) protectedConfigPath() string {
 
 func (r *Registry) isProtectedPath(path string) bool {
 	protected := r.protectedConfigPath()
-	if protected == "" {
-		return false
-	}
-
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return filepath.Clean(path) == protected
+		absPath = filepath.Clean(path)
+	} else {
+		absPath = filepath.Clean(absPath)
 	}
 
-	return filepath.Clean(absPath) == protected
+	if protected != "" && absPath == protected {
+		return true
+	}
+
+	if r.secretsPath != "" {
+		absSecrets, err := filepath.Abs(r.secretsPath)
+		if err == nil && absPath == filepath.Clean(absSecrets) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *Registry) ensurePathAccessible(path string) error {
@@ -246,25 +257,38 @@ func (r *Registry) ensurePathMutationAllowed(path string) error {
 }
 
 func (r *Registry) pathTouchesProtectedPath(path string) bool {
-	protected := r.protectedConfigPath()
-	if protected == "" {
-		return false
-	}
-
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		absPath = filepath.Clean(path)
 	}
 	absPath = filepath.Clean(absPath)
-	if absPath == protected {
-		return true
+
+	protected := r.protectedConfigPath()
+	if protected != "" {
+		if absPath == protected {
+			return true
+		}
+		rel, err := filepath.Rel(absPath, protected)
+		if err == nil && rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			return true
+		}
 	}
 
-	rel, err := filepath.Rel(absPath, protected)
-	if err != nil {
-		return false
+	if r.secretsPath != "" {
+		absSecrets, err := filepath.Abs(r.secretsPath)
+		if err == nil {
+			absSecrets = filepath.Clean(absSecrets)
+			if absPath == absSecrets {
+				return true
+			}
+			rel, err := filepath.Rel(absPath, absSecrets)
+			if err == nil && rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+				return true
+			}
+		}
 	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+
+	return false
 }
 
 func (r *Registry) describePath(path string) string {

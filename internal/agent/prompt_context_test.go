@@ -473,6 +473,40 @@ func TestSystemPromptInjectsSkillSnapshotXML(t *testing.T) {
 	}
 }
 
+func TestSystemPromptInjectsAvailableSecrets(t *testing.T) {
+	workspace := t.TempDir()
+	secretsDir := filepath.Join(workspace, ".lumen")
+	if err := os.MkdirAll(secretsDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", secretsDir, err)
+	}
+	secretsPath := filepath.Join(secretsDir, "secrets.json")
+	err := os.WriteFile(secretsPath, []byte(`{"GITHUB_PASS": "actual-password", "OPENAI_KEY": "sk-..."}`), 0o600)
+	if err != nil {
+		t.Fatalf("write secrets file: %v", err)
+	}
+
+	cfg := config.Config{App: config.AppConfig{WorkspaceRoot: workspace, SecretsPath: secretsPath}}
+	runner := NewRunner(cfg, nil, nil)
+
+	prompt := runner.systemPrompt(ConversationContext{
+		Now: time.Date(2026, 3, 12, 15, 4, 0, 0, time.UTC),
+	})
+
+	for _, snippet := range []string{
+		"Available secrets: GITHUB_PASS, OPENAI_KEY",
+		"Use {{secret:NAME}} syntax to reference them in tool calls.",
+		"Values are never shown to you and will be automatically redacted if they appear in tool output.",
+	} {
+		if !strings.Contains(prompt, snippet) {
+			t.Fatalf("expected prompt to contain %q", snippet)
+		}
+	}
+
+	if strings.Contains(prompt, "actual-password") {
+		t.Fatalf("prompt should not contain secret value")
+	}
+}
+
 func TestSystemPromptInjectsWakeUpTimeWithoutWorkspaceFiles(t *testing.T) {
 	previousLocal := time.Local
 	time.Local = time.FixedZone("AEST", 10*60*60)

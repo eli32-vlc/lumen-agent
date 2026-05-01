@@ -10,6 +10,7 @@ import (
 
 	"element-orion/internal/config"
 	"element-orion/internal/llm"
+	"element-orion/internal/secrets"
 	"element-orion/internal/skills"
 	"element-orion/internal/tools"
 )
@@ -50,6 +51,7 @@ type Runner struct {
 	client   chatClient
 	registry *tools.Registry
 	skills   *skills.Loader
+	secrets  *secrets.Store
 }
 
 type ContextUsageEstimate struct {
@@ -65,11 +67,13 @@ type ContextUsageEstimate struct {
 }
 
 func NewRunner(cfg config.Config, client chatClient, registry *tools.Registry) *Runner {
+	store, _ := secrets.Load(cfg.App.SecretsPath)
 	return &Runner{
 		cfg:      cfg,
 		client:   client,
 		registry: registry,
 		skills:   skills.NewLoader(cfg),
+		secrets:  store,
 	}
 }
 
@@ -304,11 +308,22 @@ func (r *Runner) executeSingleToolCall(ctx context.Context, history []llm.Messag
 		History:     cloneMessages(history),
 		RequestedAt: callTime,
 	})
+
+	// Substitute secrets in tool arguments
+	originalArguments := call.Function.Arguments
+	call.Function.Arguments = r.secrets.Substitute(call.Function.Arguments)
+
 	start := time.Now()
 	result, err := r.registry.Execute(callCtx, call)
 	durationMS := time.Since(start).Milliseconds()
+
+	// Redact secrets in tool output
+	result = r.secrets.Redact(result)
+
 	if err != nil {
 		result = toolErrorResult(call.Function.Name, err)
+		// Also redact error result just in case
+		result = r.secrets.Redact(result)
 		emit(Event{
 			Kind:       EventToolFinished,
 			ToolName:   call.Function.Name,
@@ -318,6 +333,9 @@ func (r *Runner) executeSingleToolCall(ctx context.Context, history []llm.Messag
 			DurationMS: durationMS,
 			Success:    false,
 		})
+		// Restore original arguments for history consistency if needed, 
+		// but actually tool calls in history should probably keep placeholders
+		call.Function.Arguments = originalArguments
 		return toolExecutionResult{Call: call, Result: result, Err: err}
 	}
 
@@ -330,6 +348,7 @@ func (r *Runner) executeSingleToolCall(ctx context.Context, history []llm.Messag
 		DurationMS: durationMS,
 		Success:    true,
 	})
+	call.Function.Arguments = originalArguments
 	return toolExecutionResult{Call: call, Result: result}
 }
 

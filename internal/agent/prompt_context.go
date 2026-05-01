@@ -297,6 +297,12 @@ func (r *Runner) systemPrompt(conversation ConversationContext) string {
 		builder.WriteString(skillsXML)
 	}
 
+	if names := r.secrets.Names(); len(names) > 0 {
+		builder.WriteString("\n\nAvailable secrets: ")
+		builder.WriteString(strings.Join(names, ", "))
+		builder.WriteString("\nUse {{secret:NAME}} syntax to reference them in tool calls. Values are never shown to you and will be automatically redacted if they appear in tool output.\n")
+	}
+
 	if len(sections) > 0 {
 		builder.WriteString("\n\nLoaded memory context:\n")
 	}
