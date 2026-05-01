@@ -42,6 +42,7 @@ const (
 	memoryCommandName      = "memory"
 	compactCommandName     = "compact"
 	stopCommandName        = "stop"
+	secretCommandName      = "secret"
 	typingInterval         = 8 * time.Second
 	promptQueueSize        = 16
 	cancelReplyText        = "The active session was reset before I could finish. Send your message again when you're ready."
@@ -283,6 +284,49 @@ func (s *Service) syncCommands() error {
 			Name:        stopCommandName,
 			Description: "Emergency stop: cancel the active session in this channel",
 		},
+		{
+			Name:        secretCommandName,
+			Description: "Manage runtime secrets",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Name:        "add",
+					Description: "Add or update a secret",
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "name",
+							Description: "The name of the secret",
+							Required:    true,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "value",
+							Description: "The value of the secret",
+							Required:    true,
+						},
+					},
+				},
+				{
+					Name:        "delete",
+					Description: "Delete a secret",
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "name",
+							Description: "The name of the secret to delete",
+							Required:    true,
+						},
+					},
+				},
+				{
+					Name:        "list",
+					Description: "List all secret names",
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+				},
+			},
+		},
 	}
 
 	if s.cfg.Discord.AllowDirectMessages {
@@ -320,6 +364,8 @@ func (s *Service) handleInteractionCreate(_ *discordgo.Session, interaction *dis
 		s.handleCompactCommand(interaction)
 	case stopCommandName:
 		s.handleStopCommand(interaction)
+	case secretCommandName:
+		s.handleSecretCommand(interaction)
 	}
 }
 
@@ -395,6 +441,80 @@ func (s *Service) handleStopCommand(interaction *discordgo.InteractionCreate) {
 	}
 
 	s.respondToInteraction(interaction, message, false)
+}
+
+func (s *Service) handleSecretCommand(interaction *discordgo.InteractionCreate) {
+	if interaction == nil {
+		return
+	}
+
+	userID := interactionUserID(interaction)
+	if userID == "" {
+		return
+	}
+
+	if ok, reason := s.authorizeContext(interaction.GuildID, userID); !ok {
+		s.respondToInteraction(interaction, reason, true)
+		return
+	}
+
+	options := interaction.ApplicationCommandData().Options
+	if len(options) == 0 {
+		return
+	}
+
+	subcommand := options[0]
+	store := s.runner.Secrets()
+	if store == nil {
+		s.respondToInteraction(interaction, "Secrets store is not initialized.", true)
+		return
+	}
+
+	switch subcommand.Name {
+	case "add":
+		var name, value string
+		for _, opt := range subcommand.Options {
+			if opt.Name == "name" {
+				name = opt.StringValue()
+			} else if opt.Name == "value" {
+				value = opt.StringValue()
+			}
+		}
+		if name == "" || value == "" {
+			s.respondToInteraction(interaction, "Both name and value are required.", true)
+			return
+		}
+		if err := store.Add(name, value); err != nil {
+			s.respondToInteraction(interaction, fmt.Sprintf("Failed to add secret: %v", err), true)
+			return
+		}
+		s.respondToInteraction(interaction, fmt.Sprintf("Secret `%s` added successfully.", name), true)
+
+	case "delete":
+		var name string
+		for _, opt := range subcommand.Options {
+			if opt.Name == "name" {
+				name = opt.StringValue()
+			}
+		}
+		if name == "" {
+			s.respondToInteraction(interaction, "Name is required.", true)
+			return
+		}
+		if err := store.Delete(name); err != nil {
+			s.respondToInteraction(interaction, fmt.Sprintf("Failed to delete secret: %v", err), true)
+			return
+		}
+		s.respondToInteraction(interaction, fmt.Sprintf("Secret `%s` deleted successfully.", name), true)
+
+	case "list":
+		names := store.Names()
+		if len(names) == 0 {
+			s.respondToInteraction(interaction, "No secrets found.", true)
+			return
+		}
+		s.respondToInteraction(interaction, fmt.Sprintf("Secrets: %s", strings.Join(names, ", ")), true)
+	}
 }
 
 func (s *Service) handleStatusCommand(interaction *discordgo.InteractionCreate) {

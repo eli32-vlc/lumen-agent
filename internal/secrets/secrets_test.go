@@ -106,3 +106,54 @@ func TestStore_Redact_Overlapping(t *testing.T) {
 		t.Errorf("Redact() with overlapping secrets = %v, want %v", got, expected)
 	}
 }
+
+func TestStore_AddDeleteSave(t *testing.T) {
+	tempFile := t.TempDir() + "/secrets.json"
+	
+	// Create an empty store and add a secret
+	s, err := Load(tempFile)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	
+	if err := s.Add("NEW_SECRET", "12345"); err != nil {
+		t.Fatalf("Add() failed: %v", err)
+	}
+	
+	names := s.Names()
+	if len(names) != 1 || names[0] != "NEW_SECRET" {
+		t.Errorf("Names() = %v, want [NEW_SECRET]", names)
+	}
+	
+	// Load again to verify Save worked
+	s2, err := Load(tempFile)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	
+	names2 := s2.Names()
+	if len(names2) != 1 || names2[0] != "NEW_SECRET" {
+		t.Errorf("Names() = %v, want [NEW_SECRET]", names2)
+	}
+	
+	// Delete the secret
+	if err := s2.Delete("NEW_SECRET"); err != nil {
+		t.Fatalf("Delete() failed: %v", err)
+	}
+	
+	names3 := s2.Names()
+	if len(names3) != 0 {
+		t.Errorf("Names() = %v, want empty", names3)
+	}
+	
+	// Load again to verify Save after Delete worked
+	s3, err := Load(tempFile)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	
+	names4 := s3.Names()
+	if len(names4) != 0 {
+		t.Errorf("Names() = %v, want empty", names4)
+	}
+}

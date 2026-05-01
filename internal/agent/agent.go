@@ -77,6 +77,13 @@ func NewRunner(cfg config.Config, client chatClient, registry *tools.Registry) *
 	}
 }
 
+func (r *Runner) Secrets() *secrets.Store {
+	if r == nil {
+		return nil
+	}
+	return r.secrets
+}
+
 func (r *Runner) SetBackgroundTaskManager(manager tools.BackgroundTaskManager) {
 	if r == nil || r.registry == nil {
 		return

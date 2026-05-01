@@ -9,18 +9,19 @@ import (
 )
 
 type Store struct {
+	path string
 	data map[string]string
 }
 
 func Load(path string) (*Store, error) {
 	if path == "" {
-		return &Store{data: make(map[string]string)}, nil
+		return &Store{path: path, data: make(map[string]string)}, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Store{data: make(map[string]string)}, nil
+			return &Store{path: path, data: make(map[string]string)}, nil
 		}
 		return nil, fmt.Errorf("read secrets file: %w", err)
 	}
@@ -30,7 +31,37 @@ func Load(path string) (*Store, error) {
 		return nil, fmt.Errorf("decode secrets file: %w", err)
 	}
 
-	return &Store{data: secrets}, nil
+	return &Store{path: path, data: secrets}, nil
+}
+
+func (s *Store) Save() error {
+	if s.path == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(s.data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal secrets: %w", err)
+	}
+	if err := os.WriteFile(s.path, data, 0o600); err != nil {
+		return fmt.Errorf("write secrets file: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) Add(name, value string) error {
+	if s.data == nil {
+		s.data = make(map[string]string)
+	}
+	s.data[name] = value
+	return s.Save()
+}
+
+func (s *Store) Delete(name string) error {
+	if s.data == nil {
+		return nil
+	}
+	delete(s.data, name)
+	return s.Save()
 }
 
 func (s *Store) Names() []string {
