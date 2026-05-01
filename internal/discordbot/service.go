@@ -263,30 +263,54 @@ func (s *Service) syncCommands() error {
 	applicationID := s.application
 	s.mu.RUnlock()
 
+	var adminPerms int64 = discordgo.PermissionAdministrator
+	contexts := []discordgo.InteractionContextType{
+		discordgo.InteractionContextGuild,
+		discordgo.InteractionContextBotDM,
+		discordgo.InteractionContextPrivateChannel,
+	}
+	integrationTypes := []discordgo.ApplicationIntegrationType{
+		discordgo.ApplicationIntegrationGuildInstall,
+		discordgo.ApplicationIntegrationUserInstall,
+	}
+
 	command := []*discordgo.ApplicationCommand{
 		{
-			Name:        newCommandName,
-			Description: "Start a fresh chat session in this channel",
+			Name:             newCommandName,
+			Description:      "Start a fresh chat session in this channel",
+			Contexts:         &contexts,
+			IntegrationTypes: &integrationTypes,
 		},
 		{
-			Name:        statusCommandName,
-			Description: "Show session, background task, and context-window status for this channel",
+			Name:             statusCommandName,
+			Description:      "Show session, background task, and context-window status for this channel",
+			Contexts:         &contexts,
+			IntegrationTypes: &integrationTypes,
 		},
 		{
-			Name:        memoryCommandName,
-			Description: "Show memory shard status and what memory this channel is loading",
+			Name:             memoryCommandName,
+			Description:      "Show memory shard status and what memory this channel is loading",
+			Contexts:         &contexts,
+			IntegrationTypes: &integrationTypes,
 		},
 		{
-			Name:        compactCommandName,
-			Description: "Compact the current session history for this channel",
+			Name:             compactCommandName,
+			Description:      "Compact the current session history for this channel",
+			Contexts:         &contexts,
+			IntegrationTypes: &integrationTypes,
 		},
 		{
-			Name:        stopCommandName,
-			Description: "Emergency stop: cancel the active session in this channel",
+			Name:             stopCommandName,
+			Description:      "Emergency stop: cancel the active session in this channel",
+			Contexts:         &contexts,
+			IntegrationTypes: &integrationTypes,
 		},
 		{
-			Name:        secretCommandName,
-			Description: "Manage runtime secrets",
+			Name:                     secretCommandName,
+			Description:              "Manage runtime secrets",
+			DefaultMemberPermissions: &adminPerms,
+			Contexts:                 &contexts,
+			IntegrationTypes:         &integrationTypes,
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Name:        "add",
@@ -333,15 +357,20 @@ func (s *Service) syncCommands() error {
 		if _, err := s.discord.ApplicationCommandBulkOverwrite(applicationID, "", command); err != nil {
 			return fmt.Errorf("register global commands: %w", err)
 		}
+		// Clear guild-specific commands for allowed guilds to avoid duplicates when global commands are enabled
+		for _, guildID := range s.cfg.Discord.AllowedGuildIDs {
+			if _, err := s.discord.ApplicationCommandBulkOverwrite(applicationID, guildID, []*discordgo.ApplicationCommand{}); err != nil {
+				return fmt.Errorf("clear guild commands for %s: %w", guildID, err)
+			}
+		}
 	} else {
 		if _, err := s.discord.ApplicationCommandBulkOverwrite(applicationID, "", []*discordgo.ApplicationCommand{}); err != nil {
 			return fmt.Errorf("clear global commands: %w", err)
 		}
-	}
-
-	for _, guildID := range s.cfg.Discord.AllowedGuildIDs {
-		if _, err := s.discord.ApplicationCommandBulkOverwrite(applicationID, guildID, command); err != nil {
-			return fmt.Errorf("register guild command for %s: %w", guildID, err)
+		for _, guildID := range s.cfg.Discord.AllowedGuildIDs {
+			if _, err := s.discord.ApplicationCommandBulkOverwrite(applicationID, guildID, command); err != nil {
+				return fmt.Errorf("register guild command for %s: %w", guildID, err)
+			}
 		}
 	}
 
