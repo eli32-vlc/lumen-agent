@@ -292,6 +292,7 @@ func defaultConfig() Config {
 				"schedule_heartbeat_wakeup",
 				"list_scheduled_wakeups",
 				"cancel_scheduled_wakeup",
+				"read_previous_messages",
 				"add_rss_feed",
 				"list_rss_feeds",
 				"read_rss_feed",

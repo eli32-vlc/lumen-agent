@@ -348,6 +348,7 @@ func (r *Runner) canExecuteToolCallsInParallel(toolCalls []llm.ToolCall) bool {
 func isParallelSafeTool(name string) bool {
 	switch strings.TrimSpace(name) {
 	case "read_file",
+		"read_previous_messages",
 		"list_dir",
 		"grep_search",
 		"search_web",
