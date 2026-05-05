@@ -82,10 +82,29 @@ func (s *Store) Substitute(text string) string {
 		return text
 	}
 
-	result := text
+	type pair struct {
+		name  string
+		value string
+	}
+	pairs := make([]pair, 0, len(s.data))
 	for name, value := range s.data {
-		placeholder := fmt.Sprintf("{{secret:%s}}", name)
-		result = strings.ReplaceAll(result, placeholder, value)
+		pairs = append(pairs, pair{name: name, value: value})
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return len(pairs[i].name) > len(pairs[j].name)
+	})
+
+	result := text
+	const maxPasses = 10
+	for pass := 0; pass < maxPasses; pass++ {
+		before := result
+		for _, p := range pairs {
+			placeholder := fmt.Sprintf("{{secret:%s}}", p.name)
+			result = strings.ReplaceAll(result, placeholder, p.value)
+		}
+		if result == before {
+			return result
+		}
 	}
 	return result
 }

@@ -759,6 +759,19 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	state.lockRun()
 	defer state.unlockRun()
 
+	defer func() {
+		if r := recover(); r != nil {
+			s.audit.Write("panic", state.ID, map[string]any{
+				"op":    "session_panic",
+				"panic": fmt.Sprintf("%v", r),
+				"kind":  string(prompt.Kind),
+			})
+			if prompt.Kind != promptKindHeartbeat && prompt.Kind != promptKindDream {
+				_ = s.sendReply(prompt, errorReplyText)
+			}
+		}
+	}()
+
 	stopTyping := func() {}
 	if prompt.UseIndicator {
 		stopTyping = s.startTyping(prompt.ChannelID)

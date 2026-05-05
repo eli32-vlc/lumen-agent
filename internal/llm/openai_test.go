@@ -704,3 +704,252 @@ func TestCodexClientSendsReasoningPayloadWhenSetToNone(t *testing.T) {
 		t.Fatalf("Chat returned error: %v", err)
 	}
 }
+
+func TestNewClientRoutesDeepSeekToChatCompletions(t *testing.T) {
+	client := NewClient(
+		"https://api.deepseek.com/v1",
+		"test-key",
+		APITypeDeepSeek,
+		map[string]string{},
+		false,
+		false,
+		30*time.Second,
+	)
+
+	chatClient, ok := client.impl.(*chatCompletionsClient)
+	if !ok {
+		t.Fatalf("expected chat completions client for deepseek, got %T", client.impl)
+	}
+	if chatClient.normalizeMessage == nil {
+		t.Fatal("expected normalizeMessage to be set for deepseek client")
+	}
+}
+
+func TestNormalizeDeepSeekMessageKeepsReasoningForToolCalls(t *testing.T) {
+	message := Message{
+		Role:             "assistant",
+		Content:          "content",
+		ReasoningContent: "Let me think about which tool to use...",
+		ToolCalls: []ToolCall{{
+			ID:   "call_123",
+			Type: "function",
+			Function: ToolFunctionCall{
+				Name:      "read_file",
+				Arguments: `{"path":"foo.go"}`,
+			},
+		}},
+	}
+
+	normalized := normalizeDeepSeekMessage(message)
+
+	if normalized.ReasoningContent == "" {
+		t.Fatal("expected reasoning_content to be preserved for messages with tool calls")
+	}
+}
+
+func TestNormalizeDeepSeekMessageStripsReasoningWithoutToolCalls(t *testing.T) {
+	message := Message{
+		Role:             "assistant",
+		Content:          "The answer is 42.",
+		ReasoningContent: "Let me think about this...",
+	}
+
+	normalized := normalizeDeepSeekMessage(message)
+
+	if normalized.ReasoningContent != "" {
+		t.Fatalf("expected reasoning_content to be stripped for messages without tool calls, got %q", normalized.ReasoningContent)
+	}
+}
+
+func TestNormalizeDeepSeekMessageIgnoresNonAssistantMessages(t *testing.T) {
+	message := Message{
+		Role:             "user",
+		Content:          "Hello",
+		ReasoningContent: "This should be ignored",
+	}
+
+	normalized := normalizeDeepSeekMessage(message)
+
+	if normalized.ReasoningContent == "" {
+		t.Fatal("expected reasoning_content to be untouched for non-assistant messages")
+	}
+}
+
+func TestNormalizeDeepSeekMessageNoOpWhenNoReasoning(t *testing.T) {
+	message := Message{
+		Role:      "assistant",
+		Content:   "Just a simple reply",
+		ToolCalls: nil,
+	}
+
+	normalized := normalizeDeepSeekMessage(message)
+
+	if normalized.ReasoningContent != "" {
+		t.Fatal("expected no reasoning_content change when it was already empty")
+	}
+}
+
+func TestResponseMessageCapturesReasoningContent(t *testing.T) {
+	message := responseMessage{
+		Role:             "assistant",
+		Content:          flexibleContent{text: "final answer"},
+		ReasoningContent: "step by step reasoning",
+		ToolCalls: []ToolCall{{
+			ID:   "call_456",
+			Type: "function",
+			Function: ToolFunctionCall{
+				Name:      "list_dir",
+				Arguments: `{"path":"."}`,
+			},
+		}},
+	}.toMessage()
+
+	if message.ReasoningContent != "step by step reasoning" {
+		t.Fatalf("expected reasoning_content %q, got %q", "step by step reasoning", message.ReasoningContent)
+	}
+	if message.Content != "final answer" {
+		t.Fatalf("expected content %q, got %q", "final answer", message.Content)
+	}
+	if len(message.ToolCalls) != 1 || message.ToolCalls[0].ID != "call_456" {
+		t.Fatalf("expected tool call to be preserved, got %#v", message.ToolCalls)
+	}
+}
+
+func TestDeepSeekClientSendsReasoningContentForToolCalls(t *testing.T) {
+	client := &Client{impl: &chatCompletionsClient{
+		httpJSONClient: &httpJSONClient{
+			endpoint: "https://api.deepseek.com/v1/chat/completions",
+			apiKey:   "test-key",
+			headers:  map[string]string{},
+			httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode request: %v", err)
+				}
+
+				messages, ok := payload["messages"].([]any)
+				if !ok || len(messages) == 0 {
+					t.Fatalf("expected messages in payload")
+				}
+
+				assistantMsg, ok := messages[0].(map[string]any)
+				if !ok {
+					t.Fatalf("expected first message to be a map")
+				}
+
+				if assistantMsg["role"] != "assistant" {
+					t.Fatalf("expected assistant role, got %v", assistantMsg["role"])
+				}
+
+				reasoning, ok := assistantMsg["reasoning_content"].(string)
+				if !ok || reasoning == "" {
+					t.Fatal("expected reasoning_content to be included for assistant message with tool calls")
+				}
+
+				body, err := json.Marshal(map[string]any{
+					"choices": []map[string]any{{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "Here is the result.",
+						},
+					}},
+				})
+				if err != nil {
+					t.Fatalf("marshal response: %v", err)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(bytes.NewReader(body)),
+				}, nil
+			})},
+		},
+		normalizeMessage: normalizeDeepSeekMessage,
+	}}
+
+	_, err := client.Chat(context.Background(), Request{
+		Model: "deepseek-reasoner",
+		Messages: []Message{{
+			Role:             "assistant",
+			Content:          "content",
+			ReasoningContent: "I should use the read_file tool...",
+			ToolCalls: []ToolCall{{
+				ID:   "call_123",
+				Type: "function",
+				Function: ToolFunctionCall{
+					Name:      "read_file",
+					Arguments: `{"path":"foo.go"}`,
+				},
+			}},
+		}},
+		Temperature: 0.2,
+		MaxTokens:   32,
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+}
+
+func TestDeepSeekClientStripsReasoningContentWithoutToolCalls(t *testing.T) {
+	client := &Client{impl: &chatCompletionsClient{
+		httpJSONClient: &httpJSONClient{
+			endpoint: "https://api.deepseek.com/v1/chat/completions",
+			apiKey:   "test-key",
+			headers:  map[string]string{},
+			httpClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode request: %v", err)
+				}
+
+				messages, ok := payload["messages"].([]any)
+				if !ok || len(messages) == 0 {
+					t.Fatalf("expected messages in payload")
+				}
+
+				assistantMsg, ok := messages[0].(map[string]any)
+				if !ok {
+					t.Fatalf("expected first message to be a map")
+				}
+
+				if _, ok := assistantMsg["reasoning_content"]; ok {
+					t.Fatal("expected reasoning_content to be omitted for assistant message without tool calls")
+				}
+
+				body, err := json.Marshal(map[string]any{
+					"choices": []map[string]any{{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "Here is the result.",
+						},
+					}},
+				})
+				if err != nil {
+					t.Fatalf("marshal response: %v", err)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(bytes.NewReader(body)),
+				}, nil
+			})},
+		},
+		normalizeMessage: normalizeDeepSeekMessage,
+	}}
+
+	_, err := client.Chat(context.Background(), Request{
+		Model: "deepseek-reasoner",
+		Messages: []Message{{
+			Role:             "assistant",
+			Content:          "The answer is 42.",
+			ReasoningContent: "Let me think step by step...",
+		}},
+		Temperature: 0.2,
+		MaxTokens:   32,
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+}

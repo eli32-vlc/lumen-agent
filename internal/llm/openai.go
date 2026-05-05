@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	APITypeOpenAI = "openai"
-	APITypeCodex  = "codex"
+	APITypeOpenAI   = "openai"
+	APITypeCodex    = "codex"
+	APITypeDeepSeek = "deepseek"
 )
 
 type Client struct {
@@ -57,19 +58,20 @@ type ContentPart struct {
 }
 
 type Message struct {
-	Role            string           `json:"role"`
-	Content         string           `json:"content,omitempty"`
-	Parts           []ContentPart    `json:"parts,omitempty"`
-	Timestamp       string           `json:"timestamp,omitempty"`
-	Name            string           `json:"name,omitempty"`
-	ToolCallID      string           `json:"tool_call_id,omitempty"`
-	ToolCalls       []ToolCall       `json:"tool_calls,omitempty"`
-	ResponseItems   []map[string]any `json:"response_items,omitempty"`
-	Usage           map[string]any   `json:"usage,omitempty"`
-	RequestPayload  map[string]any   `json:"request_payload,omitempty"`
-	RawResponse     map[string]any   `json:"raw_response,omitempty"`
-	OutputTokens    int              `json:"output_tokens,omitempty"`
-	ReasoningTokens int              `json:"reasoning_tokens,omitempty"`
+	Role             string           `json:"role"`
+	Content          string           `json:"content,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	Parts            []ContentPart    `json:"parts,omitempty"`
+	Timestamp        string           `json:"timestamp,omitempty"`
+	Name             string           `json:"name,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall       `json:"tool_calls,omitempty"`
+	ResponseItems    []map[string]any `json:"response_items,omitempty"`
+	Usage            map[string]any   `json:"usage,omitempty"`
+	RequestPayload   map[string]any   `json:"request_payload,omitempty"`
+	RawResponse      map[string]any   `json:"raw_response,omitempty"`
+	OutputTokens     int              `json:"output_tokens,omitempty"`
+	ReasoningTokens  int              `json:"reasoning_tokens,omitempty"`
 }
 
 type ToolDefinition struct {
@@ -100,6 +102,12 @@ func NewClient(baseURL string, apiKey string, apiType string, headers map[string
 		return &Client{impl: &chatCompletionsClient{
 			httpJSONClient: newHTTPJSONClient(baseURL, "/chat/completions", apiKey, headers, timeout),
 			extraBody:      buildOpenAIExtraBody(kimiNoThink, glmNoThink),
+		}}
+	case APITypeDeepSeek:
+		return &Client{impl: &chatCompletionsClient{
+			httpJSONClient:    newHTTPJSONClient(baseURL, "/chat/completions", apiKey, headers, timeout),
+			extraBody:         map[string]any{},
+			normalizeMessage:  normalizeDeepSeekMessage,
 		}}
 	case APITypeCodex:
 		return &Client{impl: &responsesClient{httpJSONClient: newHTTPJSONClient(baseURL, "/responses", apiKey, headers, timeout)}}
@@ -208,7 +216,8 @@ func (c *httpJSONClient) doJSONRequest(ctx context.Context, payload any) (*http.
 
 type chatCompletionsClient struct {
 	*httpJSONClient
-	extraBody map[string]any
+	extraBody        map[string]any
+	normalizeMessage func(Message) Message
 }
 
 func buildOpenAIExtraBody(kimiNoThink bool, glmNoThink bool) map[string]any {
@@ -231,10 +240,29 @@ func buildOpenAIExtraBody(kimiNoThink bool, glmNoThink bool) map[string]any {
 	return extraBody
 }
 
+func normalizeDeepSeekMessage(message Message) Message {
+	if message.Role != "assistant" || message.ReasoningContent == "" {
+		return message
+	}
+	if len(message.ToolCalls) > 0 {
+		return message
+	}
+	message.ReasoningContent = ""
+	return message
+}
+
 func (c *chatCompletionsClient) Chat(ctx context.Context, req Request) (Message, error) {
+	messages := req.Messages
+	if c.normalizeMessage != nil {
+		normalized := make([]Message, len(messages))
+		for i, msg := range messages {
+			normalized[i] = c.normalizeMessage(msg)
+		}
+		messages = normalized
+	}
 	payload := map[string]any{
 		"model":       req.Model,
-		"messages":    buildChatCompletionsMessages(req.Messages),
+		"messages":    buildChatCompletionsMessages(messages),
 		"temperature": req.Temperature,
 		"stream":      false,
 	}
@@ -401,6 +429,9 @@ func chatCompletionsMessage(message Message) map[string]any {
 	}
 	if len(message.ToolCalls) > 0 {
 		item["tool_calls"] = message.ToolCalls
+	}
+	if reasoning := strings.TrimSpace(message.ReasoningContent); reasoning != "" {
+		item["reasoning_content"] = reasoning
 	}
 
 	switch message.Role {
@@ -654,18 +685,20 @@ type chatChoice struct {
 }
 
 type responseMessage struct {
-	Role      string          `json:"role"`
-	Content   flexibleContent `json:"content"`
-	ToolCalls []ToolCall      `json:"tool_calls,omitempty"`
-	Name      string          `json:"name,omitempty"`
+	Role             string          `json:"role"`
+	Content          flexibleContent `json:"content"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall      `json:"tool_calls,omitempty"`
+	Name             string          `json:"name,omitempty"`
 }
 
 func (m responseMessage) toMessage() Message {
 	return Message{
-		Role:      m.Role,
-		Content:   StripMessageTimeMetadata(m.Content.String()),
-		Name:      m.Name,
-		ToolCalls: m.ToolCalls,
+		Role:             m.Role,
+		Content:          StripMessageTimeMetadata(m.Content.String()),
+		ReasoningContent: strings.TrimSpace(m.ReasoningContent),
+		Name:             m.Name,
+		ToolCalls:        m.ToolCalls,
 	}
 }
 

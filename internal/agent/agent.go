@@ -151,17 +151,18 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 
 		responseTime := time.Now().UTC()
 		assistantMessage := llm.Message{
-			Role:            "assistant",
-			Content:         sanitizeAssistantContent(response.Content),
-			Name:            response.Name,
-			ToolCalls:       response.ToolCalls,
-			ResponseItems:   response.ResponseItems,
-			Usage:           response.Usage,
-			RequestPayload:  response.RequestPayload,
-			RawResponse:     response.RawResponse,
-			OutputTokens:    response.OutputTokens,
-			ReasoningTokens: response.ReasoningTokens,
-			Timestamp:       r.messageTimestamp(responseTime),
+			Role:             "assistant",
+			Content:          sanitizeAssistantContent(response.Content),
+			ReasoningContent: response.ReasoningContent,
+			Name:             response.Name,
+			ToolCalls:        response.ToolCalls,
+			ResponseItems:    response.ResponseItems,
+			Usage:            response.Usage,
+			RequestPayload:   response.RequestPayload,
+			RawResponse:      response.RawResponse,
+			OutputTokens:     response.OutputTokens,
+			ReasoningTokens:  response.ReasoningTokens,
+			Timestamp:        r.messageTimestamp(responseTime),
 		}
 		outputTokens := response.OutputTokens
 		if outputTokens <= 0 {
@@ -282,6 +283,18 @@ func (r *Runner) executeToolCalls(ctx context.Context, history []llm.Message, to
 		resultCh := make(chan indexedResult, len(toolCalls))
 		for idx, call := range toolCalls {
 			go func(index int, toolCall llm.ToolCall) {
+				defer func() {
+					if r := recover(); r != nil {
+						resultCh <- indexedResult{
+							index: index,
+							item: toolExecutionResult{
+								Call:   toolCall,
+								Result: toolErrorResult(toolCall.Function.Name, fmt.Errorf("tool panic: %v", r)),
+								Err:    fmt.Errorf("tool panic: %v", r),
+							},
+						}
+					}
+				}()
 				resultCh <- indexedResult{
 					index: index,
 					item:  r.executeSingleToolCall(ctx, historySnapshot, toolCall, emit),
@@ -695,11 +708,11 @@ func trimHistoryForContext(history []llm.Message, systemPrompt string, budgetTok
 	}
 
 	systemTokens := approximateTextTokens(systemPrompt) + 12
-	if systemTokens >= budgetTokens {
+	remainingBudget := budgetTokens - systemTokens
+	if remainingBudget <= 0 {
 		return historyTail(history, 1)
 	}
 
-	remainingBudget := budgetTokens - systemTokens
 	selected := make([]llm.Message, 0, len(history))
 	used := 0
 
@@ -719,6 +732,12 @@ func trimHistoryForContext(history []llm.Message, systemPrompt string, budgetTok
 
 		selected = append(selected, message)
 		used += tokens
+	}
+
+	for len(selected) > 1 && used > remainingBudget {
+		oldest := selected[len(selected)-1]
+		used -= approximateMessageTokens(oldest)
+		selected = selected[:len(selected)-1]
 	}
 
 	for left, right := 0, len(selected)-1; left < right; left, right = left+1, right-1 {
