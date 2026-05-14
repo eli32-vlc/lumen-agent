@@ -16,7 +16,17 @@ const (
 )
 
 func compactHistoryForStorage(cfg config.Config, history []llm.Message) []llm.Message {
-	compacted := CompactHistoryForNextTurn(history)
+	// Strip internal-only user messages (auto-recovery, follow-through, wrap-up)
+	// so they are never persisted and never visible to the agent across turns.
+	filtered := make([]llm.Message, 0, len(history))
+	for _, msg := range history {
+		if msg.Role == "user" && msg.IsInternal {
+			continue
+		}
+		filtered = append(filtered, msg)
+	}
+
+	compacted := CompactHistoryForNextTurn(filtered)
 	if !cfg.App.HistoryCompaction.Enabled || len(compacted) == 0 {
 		return compacted
 	}
