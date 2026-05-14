@@ -18,6 +18,9 @@ import (
 const autoFollowThroughPrompt = "System follow-up: you made workspace changes during this turn. Unless the work is already verified or you are genuinely blocked, continue autonomously. Inspect the saved result, run the smallest relevant verification step you can, update TASKS.md if that would help continuity, and then give the final user-facing reply. Do not ask for confirmation for low-risk verification or obvious next steps."
 const autoRecoveryPrompt = "System recovery: one or more tool calls failed during this turn. Continue autonomously by trying the safest reasonable fallback, narrower scope, or inspection step you can. Only stop if you are genuinely blocked or the next action would be high-risk. If you remain blocked, give a concrete blocker plus the best next step."
 const autoWrapUpPrompt = "System wrap-up: your latest reply is too generic for the work completed in this turn. Continue autonomously and give a concrete final update: what changed, what you verified, any remaining blocker, and the next useful step if anything is still pending."
+const emptyReplyNudgePrompt = "System nudge: you completed tool work during this turn but produced no text reply for the user. Summarise what you did, what changed, and any next steps. Send the summary as your reply. Do not make more tool calls."
+const maxAutoBudget = 5
+const stallThreshold = 5
 
 type chatClient interface {
 	Chat(ctx context.Context, req llm.Request) (llm.Message, error)
@@ -67,7 +70,10 @@ type ContextUsageEstimate struct {
 }
 
 func NewRunner(cfg config.Config, client chatClient, registry *tools.Registry) *Runner {
-	store, _ := secrets.Load(cfg.App.SecretsPath)
+	store, err := secrets.Load(cfg.App.SecretsPath)
+	if err != nil {
+		store = nil
+	}
 	return &Runner{
 		cfg:      cfg,
 		client:   client,
@@ -121,16 +127,16 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 		Timestamp: r.messageTimestamp(initialUserTime),
 	})
 	turnStartIndex := len(workingHistory) - 1
-	autoRecoveryUsed := false
-	autoFollowThroughUsed := false
-	autoWrapUpUsed := false
+	autoBudget := maxAutoBudget
+	consecutiveFailures := 0
+	lastFailedTool := ""
 
 	model := r.cfg.LLM.Model
 	if strings.TrimSpace(conversation.ModelOverride) != "" {
 		model = strings.TrimSpace(conversation.ModelOverride)
 	}
 
-	for step := 0; step < r.cfg.App.MaxAgentLoops; step++ {
+	for {
 		emit(Event{Kind: EventStatus, Message: "Contacting model", Time: time.Now()})
 
 		modelStart := time.Now()
@@ -189,39 +195,53 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 
 		if len(response.ToolCalls) == 0 {
 			turnMessages := workingHistory[turnStartIndex+1:]
-if !autoRecoveryUsed && shouldAutoRecover(turnMessages) {
-				autoRecoveryUsed = true
+
+			if autoBudget > 0 && shouldAutoRecover(turnMessages) {
+				autoBudget--
 				workingHistory = append(workingHistory, llm.Message{
-					Role:      "user",
-					Content:   autoRecoveryPrompt,
-					Timestamp: r.messageTimestamp(time.Now().UTC()),
+					Role:       "user",
+					Content:    autoRecoveryPrompt,
+					Timestamp:  r.messageTimestamp(time.Now().UTC()),
 					IsInternal: true,
 				})
 				emit(Event{Kind: EventStatus, Message: "Auto-recovery", Time: time.Now()})
 				continue
 			}
-			if !autoFollowThroughUsed && shouldAutoFollowThrough(workingHistory[turnStartIndex+1:]) {
-				autoFollowThroughUsed = true
+			if autoBudget > 0 && shouldAutoFollowThrough(turnMessages) {
+				autoBudget--
 				workingHistory = append(workingHistory, llm.Message{
-					Role:      "user",
-					Content:   autoFollowThroughPrompt,
-					Timestamp: r.messageTimestamp(time.Now().UTC()),
+					Role:       "user",
+					Content:    autoFollowThroughPrompt,
+					Timestamp:  r.messageTimestamp(time.Now().UTC()),
 					IsInternal: true,
 				})
 				emit(Event{Kind: EventStatus, Message: "Auto-follow-through", Time: time.Now()})
 				continue
 			}
-			if !autoWrapUpUsed && shouldAutoWrapUp(turnMessages) {
-				autoWrapUpUsed = true
+			if autoBudget > 0 && shouldAutoWrapUp(turnMessages) {
+				autoBudget--
 				workingHistory = append(workingHistory, llm.Message{
-					Role:      "user",
-					Content:   autoWrapUpPrompt,
-					Timestamp: r.messageTimestamp(time.Now().UTC()),
+					Role:       "user",
+					Content:    autoWrapUpPrompt,
+					Timestamp:  r.messageTimestamp(time.Now().UTC()),
 					IsInternal: true,
 				})
 				emit(Event{Kind: EventStatus, Message: "Auto-wrap-up", Time: time.Now()})
 				continue
 			}
+
+			if autoBudget > 0 && hasToolActivity(turnMessages) && strings.TrimSpace(response.Content) == "" {
+				autoBudget--
+				workingHistory = append(workingHistory, llm.Message{
+					Role:       "user",
+					Content:    emptyReplyNudgePrompt,
+					Timestamp:  r.messageTimestamp(time.Now().UTC()),
+					IsInternal: true,
+				})
+				emit(Event{Kind: EventStatus, Message: "Nudge for text reply", Time: time.Now()})
+				continue
+			}
+
 			emit(Event{Kind: EventStatus, Message: "Ready", Time: time.Now()})
 			return workingHistory, nil
 		}
@@ -253,10 +273,34 @@ if !autoRecoveryUsed && shouldAutoRecover(turnMessages) {
 			if item.Call.Function.Name == "compact_context" {
 				workingHistory = r.applyExplicitContextCompaction(workingHistory, emit)
 			}
+
+			if item.Err != nil {
+				toolName := item.Call.Function.Name
+				if toolName == lastFailedTool {
+					consecutiveFailures++
+				} else {
+					consecutiveFailures = 1
+					lastFailedTool = toolName
+				}
+			} else {
+				consecutiveFailures = 0
+				lastFailedTool = ""
+			}
+		}
+
+		if consecutiveFailures >= stallThreshold && autoBudget > 0 {
+			autoBudget--
+			workingHistory = append(workingHistory, llm.Message{
+				Role:       "user",
+				Content:    autoRecoveryPrompt,
+				Timestamp:  r.messageTimestamp(time.Now().UTC()),
+				IsInternal: true,
+			})
+			emit(Event{Kind: EventStatus, Message: "Recovery from stall", Time: time.Now()})
+			consecutiveFailures = 0
+			lastFailedTool = ""
 		}
 	}
-
-	return workingHistory, fmt.Errorf("agent stopped after %d tool loops", r.cfg.App.MaxAgentLoops)
 }
 
 type toolExecutionResult struct {
@@ -481,7 +525,7 @@ func hasMutatingToolResult(messages []llm.Message) bool {
 		if !isMutatingTool(message.Name) {
 			continue
 		}
-		if strings.Contains(strings.ToLower(message.Content), `"error"`) {
+		if isToolErrorContent(message.Content) {
 			continue
 		}
 		return true
@@ -516,7 +560,10 @@ func isToolErrorContent(content string) bool {
 		_, ok := parsed["error"]
 		return ok
 	}
-	return strings.Contains(strings.ToLower(content), `"error"`)
+	lower := strings.ToLower(content)
+	return strings.Contains(lower, `"error":`) ||
+		strings.Contains(lower, `"error" :`) ||
+		strings.Contains(lower, `"error":"`)
 }
 
 func lastAssistantMessage(messages []llm.Message) (llm.Message, bool) {
@@ -534,7 +581,11 @@ func isVagueCompletionReply(content string) bool {
 	normalized = strings.TrimSuffix(normalized, ".")
 
 	switch normalized {
-	case "", "done", "fixed", "updated", "completed", "all set", "i updated the file", "i fixed it", "finished":
+	case "", "done", "fixed", "updated", "completed", "all set", "all done",
+		"i updated the file", "i fixed it", "finished",
+		"that's done", "that should be done", "should be fixed",
+		"done now", "that is done", "i've done that",
+		"ok", "okay", "sure", "got it":
 		return true
 	default:
 		return false

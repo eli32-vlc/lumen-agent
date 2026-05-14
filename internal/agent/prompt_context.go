@@ -353,7 +353,6 @@ func (r *Runner) runtimeMetadataLines(conversation ConversationContext) []string
 		"Workspace file paths: " + promptWorkspaceFilePathSummary(workspaceRoot),
 		"Memory file paths: " + promptMemoryFilePathSummary(r.cfg, conversation),
 		"Load all memory shards: " + promptBoolStatus(r.cfg.App.LoadAllMemoryShards),
-		"Max agent loops: " + strconv.Itoa(r.cfg.App.MaxAgentLoops),
 		"Max tool calls per turn: " + strconv.Itoa(r.cfg.App.MaxToolCallsPerTurn),
 		"History compaction: " + promptHistoryCompactionSummary(r.cfg),
 		"Message timestamps: " + promptBoolStatus(r.cfg.LLM.InjectMessageTimestamps),

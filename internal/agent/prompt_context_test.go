@@ -743,7 +743,6 @@ func TestSystemPromptInjectsRuntimeMetadata(t *testing.T) {
 		"Context window tokens: 8192",
 		"Workspace root: " + workspace,
 		"Memory dir: " + memoryDir,
-		"Max agent loops: 9",
 		"Max tool calls per turn: 15",
 		"Load all memory shards: disabled",
 		"History compaction: enabled (trigger=9000, target=5000, preserve_recent=10)",

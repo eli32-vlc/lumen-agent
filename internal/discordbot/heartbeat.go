@@ -404,7 +404,7 @@ func consumeHeartbeatEvents(dir string, mode string) ([]queuedHeartbeatEvent, er
 
 		var event heartbeatSystemEvent
 		if err := json.Unmarshal(data, &event); err != nil {
-			_ = os.Remove(path)
+			_ = os.Rename(path, path+".corrupt")
 			continue
 		}
 		if event.Mode != mode {

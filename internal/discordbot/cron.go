@@ -273,24 +273,33 @@ func scheduledWakeupID() string {
 	return fmt.Sprintf("wake-%s-%s", time.Now().UTC().Format("20060102-150405"), hex.EncodeToString(suffix[:]))
 }
 
+func (m *scheduledWakeupManager) nextDueAt() time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var earliest time.Time
+	for _, item := range m.items {
+		if item.info.NextRunAt.IsZero() {
+			continue
+		}
+		if earliest.IsZero() || item.info.NextRunAt.Before(earliest) {
+			earliest = item.info.NextRunAt
+		}
+	}
+	return earliest
+}
+
 func (s *Service) runScheduledWakeupLoop(ctx context.Context) {
 	if s.scheduledWakeups == nil || !s.cfg.HeartbeatEnabled() {
 		return
 	}
 
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	const idleSleep = 1 * time.Hour
+	const minPoll = 5 * time.Second
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			due := s.scheduledWakeups.dueWakeups(time.Now())
-			if len(due) == 0 {
-				continue
-			}
-
+		due := s.scheduledWakeups.dueWakeups(time.Now())
+		if len(due) > 0 {
 			events := make([]heartbeatSystemEvent, 0, len(due))
 			deliveredIDs := make([]string, 0, len(due))
 			for _, item := range due {
@@ -304,10 +313,29 @@ func (s *Service) runScheduledWakeupLoop(ctx context.Context) {
 				deliveredIDs = append(deliveredIDs, item.ID)
 			}
 
-			if !s.enqueueHeartbeat(events, true) {
-				continue
+			if s.enqueueHeartbeat(events, true) {
+				s.scheduledWakeups.acknowledgeDelivered(deliveredIDs, time.Now())
 			}
-			s.scheduledWakeups.acknowledgeDelivered(deliveredIDs, time.Now())
+		}
+
+		nextAt := s.scheduledWakeups.nextDueAt()
+		var delay time.Duration
+		switch {
+		case nextAt.IsZero():
+			delay = idleSleep
+		default:
+			delay = time.Until(nextAt)
+			if delay < minPoll {
+				delay = minPoll
+			}
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
 		}
 	}
 }

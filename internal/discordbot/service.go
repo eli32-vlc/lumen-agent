@@ -830,6 +830,8 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 		s.logAgentEvent(state, event)
 	})
 
+	stopTyping()
+
 	if errors.Is(state.Context.Err(), context.Canceled) {
 		if s.sessionStillActive(state) {
 			if sendErr := s.sendReply(prompt, cancelReplyText); sendErr != nil {
@@ -885,6 +887,11 @@ func (s *Service) processPrompt(state *sessionState, prompt inboundPrompt) {
 	if silent || strings.TrimSpace(reply) == "" {
 		if silentReason != "" {
 			s.audit.Write("silent_reply", state.ID, map[string]any{"silent_reason": silentReason})
+		}
+		if prompt.Kind == promptKindUser {
+			if sendErr := s.sendReply(prompt, "Done."); sendErr != nil {
+				s.audit.Write("error", state.ID, map[string]any{"op": "send_fallback_reply", "error": sendErr.Error()})
+			}
 		}
 		return
 	}
@@ -1475,6 +1482,7 @@ func (s *Service) startTyping(channelID string) func() {
 	}
 
 	stop := make(chan struct{})
+	var once sync.Once
 
 	go func() {
 		ticker := time.NewTicker(typingInterval)
@@ -1493,7 +1501,7 @@ func (s *Service) startTyping(channelID string) func() {
 	}()
 
 	return func() {
-		close(stop)
+		once.Do(func() { close(stop) })
 	}
 }
 
