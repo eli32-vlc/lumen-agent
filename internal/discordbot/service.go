@@ -1324,22 +1324,22 @@ func turnAssistantReply(history []llm.Message, previousLen int) (string, bool) {
 
 	turn := history[previousLen:]
 	
-	// Check if the most recent user message is an internal system prompt
-	// If so, and the most recent assistant message is a response to it, treat as silent
+	// Only check the last user message in the turn.
+	// If it is an internal system prompt with an assistant response after it, treat as silent.
 	for i := len(turn) - 1; i >= 0; i-- {
 		message := turn[i]
-		if message.Role == "user" && message.IsInternal {
-			// Found an internal system prompt
-			// Check if the most recent assistant message is a response to it
+		if message.Role != "user" {
+			continue
+		}
+		if message.IsInternal {
 			for j := len(turn) - 1; j > i; j-- {
 				assistantMsg := turn[j]
 				if assistantMsg.Role == "assistant" && strings.TrimSpace(assistantMsg.Content) != "" {
-					// Found an assistant message after the internal prompt
-					// Treat this as a silent reply
 					return "", true
 				}
 			}
 		}
+		break
 	}
 	
 	for i := len(turn) - 1; i >= 0; i-- {
