@@ -189,12 +189,13 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 
 		if len(response.ToolCalls) == 0 {
 			turnMessages := workingHistory[turnStartIndex+1:]
-			if !autoRecoveryUsed && shouldAutoRecover(turnMessages) {
+if !autoRecoveryUsed && shouldAutoRecover(turnMessages) {
 				autoRecoveryUsed = true
 				workingHistory = append(workingHistory, llm.Message{
 					Role:      "user",
 					Content:   autoRecoveryPrompt,
 					Timestamp: r.messageTimestamp(time.Now().UTC()),
+					IsInternal: true,
 				})
 				emit(Event{Kind: EventStatus, Message: "Auto-recovery", Time: time.Now()})
 				continue
@@ -205,6 +206,7 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 					Role:      "user",
 					Content:   autoFollowThroughPrompt,
 					Timestamp: r.messageTimestamp(time.Now().UTC()),
+					IsInternal: true,
 				})
 				emit(Event{Kind: EventStatus, Message: "Auto-follow-through", Time: time.Now()})
 				continue
@@ -215,6 +217,7 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 					Role:      "user",
 					Content:   autoWrapUpPrompt,
 					Timestamp: r.messageTimestamp(time.Now().UTC()),
+					IsInternal: true,
 				})
 				emit(Event{Kind: EventStatus, Message: "Auto-wrap-up", Time: time.Now()})
 				continue

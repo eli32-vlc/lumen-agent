@@ -1,25 +1,14 @@
 package discordbot
 
 import (
-	"context"
-	"strings"
 	"testing"
 
 	"element-orion/internal/config"
 )
 
-func TestEnqueueBackgroundTaskUpdateQueuesInternalPrompt(t *testing.T) {
-	key := sessionKey{GuildID: "guild-1", ChannelID: "channel-1", UserID: ""}
-	session := &sessionState{
-		Key:     key,
-		Queue:   make(chan inboundPrompt, 1),
-		Context: context.Background(),
-	}
+func TestEnqueueBackgroundTaskUpdateAddsToBatch(t *testing.T) {
 	service := &Service{
 		cfg: configForSharedGuildTests(),
-		sessions: map[string]*sessionState{
-			key.String(): session,
-		},
 	}
 
 	task := &backgroundTask{
@@ -36,23 +25,31 @@ func TestEnqueueBackgroundTaskUpdateQueuesInternalPrompt(t *testing.T) {
 		t.Fatalf("enqueueBackgroundTaskUpdate returned error: %v", err)
 	}
 
-	select {
-	case prompt := <-session.Queue:
-		if prompt.Kind != promptKindBackground {
-			t.Fatalf("expected background prompt kind, got %q", prompt.Kind)
-		}
-		for _, snippet := range []string{
-			"Internal system event for the dom agent.",
-			"Background worker status: finished",
-			"Worker final reply:",
-			"all done",
-		} {
-			if !strings.Contains(prompt.Content, snippet) {
-				t.Fatalf("expected prompt to contain %q, got:\n%s", snippet, prompt.Content)
-			}
-		}
-	default:
-		t.Fatal("expected background handoff prompt to be queued")
+	// Check that the notification was added to the batch
+	service.batchMu.Lock()
+	batch, exists := service.backgroundNotificationBatches["channel-1"]
+	service.batchMu.Unlock()
+
+	if !exists {
+		t.Fatal("expected background notification to be added to batch")
+	}
+
+	if len(batch.notifications) != 1 {
+		t.Fatalf("expected 1 notification in batch, got %d", len(batch.notifications))
+	}
+
+	notification := batch.notifications[0]
+	if notification.taskID != "task-1" {
+		t.Fatalf("expected task ID 'task-1', got %q", notification.taskID)
+	}
+	if notification.outcome != "finished" {
+		t.Fatalf("expected outcome 'finished', got %q", notification.outcome)
+	}
+	if notification.reply != "all done" {
+		t.Fatalf("expected reply 'all done', got %q", notification.reply)
+	}
+	if notification.err != nil {
+		t.Fatalf("expected no error, got %v", notification.err)
 	}
 }
 

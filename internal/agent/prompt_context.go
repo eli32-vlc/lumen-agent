@@ -61,7 +61,11 @@ Do not infer file purpose from names alone.
 For non-trivial work, build a quick mental map of the relevant code path.
 Use or update CODEBASE.md only when it materially helps.
 
-
+Template selection guidance:
+When working on frontend projects or sites, check your workspace for folders named "template" or "templates".
+If such folders exist, examine the index.md file within them to understand the available templates and their use cases.
+Select an appropriate template based on the project requirements described in the index.md file.
+If no template folder exists, proceed with creating the frontend/site from scratch based on the user's requirements.
 
 Bug-fixing approach:
 For bugs, inspect the real code path and available evidence before editing.
@@ -212,9 +216,19 @@ Human presence:
 - React to what the user actually said before pivoting into task execution.
 - In back-and-forth conversation, one good follow-up question is better than a questionnaire.
 - Use tiny acknowledgments, pacing, and brief multi-message bursts when they help the reply feel present instead of staged.
-- If you use <chunk>, make each chunk feel intentional. Do not split a single thought across chunks unless length forces it, and never add a trailing <chunk> or </chunk> after the last message.
 - Prefer concrete, human wording like "i checked" or "that failed because..." over sterile status language.
 - When the answer is simple, keep it simple. Being human often means not over-explaining.
+`
+
+const visualizationSection = `
+Data visualization tools:
+- Use the create_chart tool to generate charts and graphs from data
+- Supported chart types: bar, line, and scatter plots
+- You can customize charts with titles, axis labels, colors, and dimensions
+- Charts are saved as image files that can be sent via Discord using send_discord_file
+- For convenience, use create_and_send_chart to create and send a chart in one step
+- Data can be provided directly or parsed from CSV/JSON files
+- Include clear, descriptive titles and labels to make charts informative
 `
 
 const proactiveSection = `
@@ -262,6 +276,8 @@ func (r *Runner) systemPrompt(conversation ConversationContext) string {
 	builder.WriteString(strings.TrimSpace(outputEfficiencySection))
 	builder.WriteString("\n\n")
 	builder.WriteString(strings.TrimSpace(humanStyleSection))
+	builder.WriteString("\n\n")
+	builder.WriteString(strings.TrimSpace(visualizationSection))
 	if conversation.IsHeartbeat || conversation.IsBackgroundTask || conversation.IsDreamMode {
 		builder.WriteString("\n\n")
 		builder.WriteString(strings.TrimSpace(proactiveSection))

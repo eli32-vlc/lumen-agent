@@ -72,6 +72,7 @@ type Message struct {
 	RawResponse      map[string]any   `json:"raw_response,omitempty"`
 	OutputTokens     int              `json:"output_tokens,omitempty"`
 	ReasoningTokens  int              `json:"reasoning_tokens,omitempty"`
+	IsInternal       bool             `json:"is_internal,omitempty"`
 }
 
 type ToolDefinition struct {

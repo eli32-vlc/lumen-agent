@@ -53,6 +53,7 @@ const (
 	emergencyStopIdleReply = "No active session was running in this channel."
 	chunkPauseMin          = 450 * time.Millisecond
 	chunkPauseJitter       = 900 * time.Millisecond
+	backgroundNotificationBatchDelay = 3 * time.Second
 )
 
 type promptKind string
@@ -82,6 +83,10 @@ type Service struct {
 	heartbeatMu         sync.Mutex
 	scheduledWakeups    *scheduledWakeupManager
 	channelTypeResolver func(channelID string) (discordgo.ChannelType, error)
+	
+	// For batching background task notifications
+	backgroundNotificationBatches map[string]*backgroundNotificationBatch
+	batchMu                    sync.Mutex
 }
 
 type runtimeStats struct {
@@ -98,6 +103,20 @@ type sessionKey struct {
 	GuildID   string
 	ChannelID string
 	UserID    string
+}
+
+// For background task notification batching
+type backgroundNotificationBatch struct {
+	channelID     string
+	notifications []backgroundNotification
+	timer         *time.Timer
+}
+
+type backgroundNotification struct {
+	taskID  string
+	outcome string
+	reply   string
+	err     error
 }
 
 type inboundPrompt struct {
@@ -251,6 +270,9 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) shutdown() {
+	// Process any pending background notification batches
+	s.processAllPendingBatches()
+	
 	s.cancelAllSessions()
 	s.cancelAllBackgroundTasks()
 	if err := s.discord.Close(); err != nil {
@@ -1301,6 +1323,25 @@ func turnAssistantReply(history []llm.Message, previousLen int) (string, bool) {
 	}
 
 	turn := history[previousLen:]
+	
+	// Check if the most recent user message is an internal system prompt
+	// If so, and the most recent assistant message is a response to it, treat as silent
+	for i := len(turn) - 1; i >= 0; i-- {
+		message := turn[i]
+		if message.Role == "user" && message.IsInternal {
+			// Found an internal system prompt
+			// Check if the most recent assistant message is a response to it
+			for j := len(turn) - 1; j > i; j-- {
+				assistantMsg := turn[j]
+				if assistantMsg.Role == "assistant" && strings.TrimSpace(assistantMsg.Content) != "" {
+					// Found an assistant message after the internal prompt
+					// Treat this as a silent reply
+					return "", true
+				}
+			}
+		}
+	}
+	
 	for i := len(turn) - 1; i >= 0; i-- {
 		message := turn[i]
 		if message.Role != "assistant" {
@@ -2445,4 +2486,149 @@ func newSessionID(now time.Time) string {
 		return fmt.Sprintf("session-%d", now.UnixNano())
 	}
 	return fmt.Sprintf("session-%s-%x", now.Format("20060102-150405"), suffix[:])
+}
+
+// Background task notification batching functions
+func (s *Service) addBackgroundNotificationToBatch(channelID, taskID, outcome, reply string, runErr error) {
+	s.batchMu.Lock()
+	defer s.batchMu.Unlock()
+
+	// Initialize batches map if needed
+	if s.backgroundNotificationBatches == nil {
+		s.backgroundNotificationBatches = make(map[string]*backgroundNotificationBatch)
+	}
+
+	// Get or create batch for this channel
+	batch, exists := s.backgroundNotificationBatches[channelID]
+	if !exists {
+		batch = &backgroundNotificationBatch{
+			channelID:     channelID,
+			notifications: make([]backgroundNotification, 0),
+		}
+		s.backgroundNotificationBatches[channelID] = batch
+	}
+
+	// Add notification to batch
+	batch.notifications = append(batch.notifications, backgroundNotification{
+		taskID:  taskID,
+		outcome: outcome,
+		reply:   reply,
+		err:     runErr,
+	})
+
+	// Reset timer if it exists, or create a new one
+	if batch.timer != nil {
+		batch.timer.Stop()
+	}
+	batch.timer = time.AfterFunc(backgroundNotificationBatchDelay, func() {
+		s.processBackgroundNotificationBatch(channelID)
+	})
+}
+
+func (s *Service) processBackgroundNotificationBatch(channelID string) {
+	s.batchMu.Lock()
+
+	// Get batch
+	batch, exists := s.backgroundNotificationBatches[channelID]
+	if !exists {
+		s.batchMu.Unlock()
+		return
+	}
+
+	// Remove batch from map
+	delete(s.backgroundNotificationBatches, channelID)
+
+	// Copy notifications and unlock mutex
+	notifications := make([]backgroundNotification, len(batch.notifications))
+	copy(notifications, batch.notifications)
+
+	s.batchMu.Unlock()
+
+	// Process notifications
+	if len(notifications) == 0 {
+		return
+	}
+
+	// Create consolidated message
+	message := s.createConsolidatedBackgroundNotificationMessage(notifications)
+
+	// Send to Discord
+	_ = s.sendChannelMessage(channelID, message)
+}
+
+func (s *Service) createConsolidatedBackgroundNotificationMessage(notifications []backgroundNotification) string {
+	if len(notifications) == 1 {
+		// Single notification, use existing format
+		n := notifications[0]
+		if n.err != nil {
+			return fmt.Sprintf("Background task `%s` failed: %s", n.taskID, n.err.Error())
+		}
+		return fmt.Sprintf("Background task `%s` completed: %s", n.taskID, n.reply)
+	}
+
+	// Multiple notifications, consolidate
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("%d background tasks completed:\n\n", len(notifications)))
+
+	completed := 0
+	failed := 0
+
+	for _, n := range notifications {
+		if n.err != nil {
+			failed++
+			builder.WriteString(fmt.Sprintf("- Task `%s`: Failed - %s\n", n.taskID, n.err.Error()))
+		} else {
+			completed++
+			builder.WriteString(fmt.Sprintf("- Task `%s`: Completed\n", n.taskID))
+			if n.reply != "" {
+				// Limit reply length to prevent overly long messages
+				reply := n.reply
+				if len(reply) > 500 {
+					reply = reply[:500] + "..."
+				}
+				builder.WriteString(fmt.Sprintf("  Result: %s\n", reply))
+			}
+		}
+		builder.WriteString("\n")
+	}
+
+	summary := fmt.Sprintf("Successfully completed: %d | Failed: %d", completed, failed)
+	builder.WriteString(summary)
+
+	return builder.String()
+}
+
+func (s *Service) sendChannelMessage(channelID, content string) error {
+	parts := splitOutgoingMessages(content)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	for i, part := range parts {
+		if i > 0 {
+			time.Sleep(randomChunkPause())
+		}
+		_, err := s.discord.ChannelMessageSend(channelID, part)
+		if err != nil {
+			return fmt.Errorf("send Discord message: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) processAllPendingBatches() {
+	s.batchMu.Lock()
+
+	// Copy batch channel IDs
+	channelIDs := make([]string, 0, len(s.backgroundNotificationBatches))
+	for channelID := range s.backgroundNotificationBatches {
+		channelIDs = append(channelIDs, channelID)
+	}
+
+	s.batchMu.Unlock()
+
+	// Process each batch immediately
+	for _, channelID := range channelIDs {
+		s.processBackgroundNotificationBatch(channelID)
+	}
 }

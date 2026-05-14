@@ -513,32 +513,10 @@ func (s *Service) enqueueBackgroundTaskUpdate(task *backgroundTask, outcome stri
 		return nil
 	}
 
-	key := s.sessionKey(task.GuildID, task.ChannelID, task.UserID)
-	session := s.lookupSession(key)
-	if session == nil {
-		var err error
-		session, _, err = s.resetSession(key)
-		if err != nil {
-			return err
-		}
-	}
-
-	prompt := inboundPrompt{
-		Kind:         promptKindBackground,
-		Content:      backgroundTaskUpdatePrompt(task, outcome, reply, runErr),
-		GuildID:      task.GuildID,
-		ChannelID:    task.ChannelID,
-		LightContext: true,
-	}
-
-	select {
-	case <-session.Context.Done():
-		return context.Canceled
-	case session.Queue <- prompt:
-		return nil
-	default:
-		return fmt.Errorf("session queue is full")
-	}
+	// Instead of immediately queuing a prompt, add to batch
+	s.addBackgroundNotificationToBatch(task.ChannelID, task.ID, outcome, reply, runErr)
+	
+	return nil
 }
 
 func backgroundTaskUpdatePrompt(task *backgroundTask, outcome string, reply string, runErr error) string {
