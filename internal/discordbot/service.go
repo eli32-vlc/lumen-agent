@@ -113,7 +113,7 @@ type backgroundNotificationBatch struct {
 }
 
 type backgroundNotification struct {
-	taskID  string
+	task    *backgroundTask
 	outcome string
 	reply   string
 	err     error
@@ -2489,7 +2489,7 @@ func newSessionID(now time.Time) string {
 }
 
 // Background task notification batching functions
-func (s *Service) addBackgroundNotificationToBatch(channelID, taskID, outcome, reply string, runErr error) {
+func (s *Service) addBackgroundNotificationToBatch(task *backgroundTask, outcome, reply string, runErr error) {
 	s.batchMu.Lock()
 	defer s.batchMu.Unlock()
 
@@ -2499,18 +2499,18 @@ func (s *Service) addBackgroundNotificationToBatch(channelID, taskID, outcome, r
 	}
 
 	// Get or create batch for this channel
-	batch, exists := s.backgroundNotificationBatches[channelID]
+	batch, exists := s.backgroundNotificationBatches[task.ChannelID]
 	if !exists {
 		batch = &backgroundNotificationBatch{
-			channelID:     channelID,
+			channelID:     task.ChannelID,
 			notifications: make([]backgroundNotification, 0),
 		}
-		s.backgroundNotificationBatches[channelID] = batch
+		s.backgroundNotificationBatches[task.ChannelID] = batch
 	}
 
 	// Add notification to batch
 	batch.notifications = append(batch.notifications, backgroundNotification{
-		taskID:  taskID,
+		task:    task,
 		outcome: outcome,
 		reply:   reply,
 		err:     runErr,
@@ -2521,100 +2521,127 @@ func (s *Service) addBackgroundNotificationToBatch(channelID, taskID, outcome, r
 		batch.timer.Stop()
 	}
 	batch.timer = time.AfterFunc(backgroundNotificationBatchDelay, func() {
-		s.processBackgroundNotificationBatch(channelID)
+		s.processBackgroundNotificationBatch(task.ChannelID)
 	})
 }
 
 func (s *Service) processBackgroundNotificationBatch(channelID string) {
 	s.batchMu.Lock()
 
-	// Get batch
 	batch, exists := s.backgroundNotificationBatches[channelID]
 	if !exists {
 		s.batchMu.Unlock()
 		return
 	}
 
-	// Remove batch from map
 	delete(s.backgroundNotificationBatches, channelID)
 
-	// Copy notifications and unlock mutex
 	notifications := make([]backgroundNotification, len(batch.notifications))
 	copy(notifications, batch.notifications)
 
 	s.batchMu.Unlock()
 
-	// Process notifications
 	if len(notifications) == 0 {
 		return
 	}
 
-	// Create consolidated message
-	message := s.createConsolidatedBackgroundNotificationMessage(notifications)
-
-	// Send to Discord
-	_ = s.sendChannelMessage(channelID, message)
-}
-
-func (s *Service) createConsolidatedBackgroundNotificationMessage(notifications []backgroundNotification) string {
-	if len(notifications) == 1 {
-		// Single notification, use existing format
-		n := notifications[0]
-		if n.err != nil {
-			return fmt.Sprintf("Background task `%s` failed: %s", n.taskID, n.err.Error())
+	// Group notifications by session key
+	type sessionGroup struct {
+		key           sessionKey
+		notifications []backgroundNotification
+	}
+	groups := make(map[string]*sessionGroup)
+	for _, n := range notifications {
+		if n.task == nil {
+			continue
 		}
-		return fmt.Sprintf("Background task `%s` completed: %s", n.taskID, n.reply)
+		key := s.sessionKey(n.task.GuildID, n.task.ChannelID, n.task.UserID)
+		keyStr := key.String()
+		group, ok := groups[keyStr]
+		if !ok {
+			group = &sessionGroup{key: key}
+			groups[keyStr] = group
+		}
+		group.notifications = append(group.notifications, n)
 	}
 
-	// Multiple notifications, consolidate
+	for _, group := range groups {
+		prompt := s.createConsolidatedBackgroundPrompt(group.notifications)
+		s.queueBackgroundPrompt(group.key, group.notifications[0].task.ChannelID, prompt)
+	}
+}
+
+func (s *Service) queueBackgroundPrompt(key sessionKey, channelID, content string) {
+	session := s.lookupSession(key)
+	if session == nil {
+		var err error
+		session, _, err = s.resetSession(key)
+		if err != nil {
+			return
+		}
+	}
+
+	prompt := inboundPrompt{
+		Kind:         promptKindBackground,
+		Content:      content,
+		GuildID:      key.GuildID,
+		ChannelID:    channelID,
+		LightContext: true,
+	}
+
+	select {
+	case <-session.Context.Done():
+	case session.Queue <- prompt:
+	default:
+	}
+}
+
+func (s *Service) createConsolidatedBackgroundPrompt(notifications []backgroundNotification) string {
+	if len(notifications) == 1 {
+		n := notifications[0]
+		return backgroundTaskUpdatePrompt(n.task, n.outcome, n.reply, n.err)
+	}
+
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("%d background tasks completed:\n\n", len(notifications)))
+	builder.WriteString("Internal system event for the dom agent. ")
+	builder.WriteString("Multiple background workers finished their runs. ")
+	builder.WriteString("Handle the user-facing follow-up yourself. ")
+	builder.WriteString("The workers do not speak directly to the user; you do. ")
+	builder.WriteString("Send a normal human reply summarizing what happened.\n\n")
 
-	completed := 0
-	failed := 0
-
-	for _, n := range notifications {
+	for i, n := range notifications {
+		if n.task == nil {
+			continue
+		}
+		fmt.Fprintf(&builder, "--- Worker %d ---\n", i+1)
+		builder.WriteString("Background worker status: ")
+		builder.WriteString(strings.TrimSpace(n.outcome))
+		builder.WriteString("\n")
+		builder.WriteString("Worker task id: ")
+		builder.WriteString(strings.TrimSpace(n.task.ID))
+		builder.WriteString("\n")
+		builder.WriteString("Original worker prompt: ")
+		builder.WriteString(compactBackgroundTaskText(n.task.Prompt, 800))
+		builder.WriteString("\n")
+		if strings.TrimSpace(n.reply) != "" {
+			builder.WriteString("Worker final reply:\n")
+			builder.WriteString(strings.TrimSpace(n.reply))
+			builder.WriteString("\n")
+		}
 		if n.err != nil {
-			failed++
-			builder.WriteString(fmt.Sprintf("- Task `%s`: Failed - %s\n", n.taskID, n.err.Error()))
-		} else {
-			completed++
-			builder.WriteString(fmt.Sprintf("- Task `%s`: Completed\n", n.taskID))
-			if n.reply != "" {
-				// Limit reply length to prevent overly long messages
-				reply := n.reply
-				if len(reply) > 500 {
-					reply = reply[:500] + "..."
-				}
-				builder.WriteString(fmt.Sprintf("  Result: %s\n", reply))
-			}
+			builder.WriteString("Worker error:\n")
+			builder.WriteString(strings.TrimSpace(n.err.Error()))
+			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
 	}
 
-	summary := fmt.Sprintf("Successfully completed: %d | Failed: %d", completed, failed)
-	builder.WriteString(summary)
-
+	builder.WriteString("Important: the workers' full internal context does not automatically merge into the main chat. ")
+	builder.WriteString("Use these handoffs to continue naturally.")
 	return builder.String()
 }
 
-func (s *Service) sendChannelMessage(channelID, content string) error {
-	parts := splitOutgoingMessages(content)
-	if len(parts) == 0 {
-		return nil
-	}
 
-	for i, part := range parts {
-		if i > 0 {
-			time.Sleep(randomChunkPause())
-		}
-		_, err := s.discord.ChannelMessageSend(channelID, part)
-		if err != nil {
-			return fmt.Errorf("send Discord message: %w", err)
-		}
-	}
-	return nil
-}
 
 func (s *Service) processAllPendingBatches() {
 	s.batchMu.Lock()

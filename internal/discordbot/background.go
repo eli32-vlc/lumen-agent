@@ -513,9 +513,7 @@ func (s *Service) enqueueBackgroundTaskUpdate(task *backgroundTask, outcome stri
 		return nil
 	}
 
-	// Instead of immediately queuing a prompt, add to batch
-	s.addBackgroundNotificationToBatch(task.ChannelID, task.ID, outcome, reply, runErr)
-	
+	s.addBackgroundNotificationToBatch(task, outcome, reply, runErr)
 	return nil
 }
 

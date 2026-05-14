@@ -39,8 +39,14 @@ func TestEnqueueBackgroundTaskUpdateAddsToBatch(t *testing.T) {
 	}
 
 	notification := batch.notifications[0]
-	if notification.taskID != "task-1" {
-		t.Fatalf("expected task ID 'task-1', got %q", notification.taskID)
+	if notification.task == nil {
+		t.Fatal("expected task to be set")
+	}
+	if notification.task.ID != "task-1" {
+		t.Fatalf("expected task ID 'task-1', got %q", notification.task.ID)
+	}
+	if notification.task.GuildID != "guild-1" {
+		t.Fatalf("expected GuildID 'guild-1', got %q", notification.task.GuildID)
 	}
 	if notification.outcome != "finished" {
 		t.Fatalf("expected outcome 'finished', got %q", notification.outcome)
