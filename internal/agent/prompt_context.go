@@ -220,17 +220,6 @@ Human presence:
 - When the answer is simple, keep it simple. Being human often means not over-explaining.
 `
 
-const visualizationSection = `
-Data visualization tools:
-- Use the create_chart tool to generate charts and graphs from data
-- Supported chart types: bar, line, and scatter plots
-- You can customize charts with titles, axis labels, colors, and dimensions
-- Charts are saved as image files that can be sent via Discord using send_discord_file
-- For convenience, use create_and_send_chart to create and send a chart in one step
-- Data can be provided directly or parsed from CSV/JSON files
-- Include clear, descriptive titles and labels to make charts informative
-`
-
 const proactiveSection = `
 Autonomous work:
 - You may receive wakeups, heartbeat runs, or other system-driven turns where no user is actively speaking.
@@ -277,7 +266,6 @@ func (r *Runner) systemPrompt(conversation ConversationContext) string {
 	builder.WriteString("\n\n")
 	builder.WriteString(strings.TrimSpace(humanStyleSection))
 	builder.WriteString("\n\n")
-	builder.WriteString(strings.TrimSpace(visualizationSection))
 	if conversation.IsHeartbeat || conversation.IsBackgroundTask || conversation.IsDreamMode {
 		builder.WriteString("\n\n")
 		builder.WriteString(strings.TrimSpace(proactiveSection))
