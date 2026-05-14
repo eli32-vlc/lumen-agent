@@ -1323,25 +1323,19 @@ func turnAssistantReply(history []llm.Message, previousLen int) (string, bool) {
 	}
 
 	turn := history[previousLen:]
-	
-	// Only check the last user message in the turn.
-	// If it is an internal system prompt with an assistant response after it, treat as silent.
-	for i := len(turn) - 1; i >= 0; i-- {
-		message := turn[i]
-		if message.Role != "user" {
+
+	// Filter out internal-only user messages (auto-recovery, follow-through, wrap-up)
+	// so they don't interfere with reply extraction. The agent's response after a
+	// self-correction IS the legitimate output the user should see.
+	filtered := make([]llm.Message, 0, len(turn))
+	for _, msg := range turn {
+		if msg.Role == "user" && msg.IsInternal {
 			continue
 		}
-		if message.IsInternal {
-			for j := len(turn) - 1; j > i; j-- {
-				assistantMsg := turn[j]
-				if assistantMsg.Role == "assistant" && strings.TrimSpace(assistantMsg.Content) != "" {
-					return "", true
-				}
-			}
-		}
-		break
+		filtered = append(filtered, msg)
 	}
-	
+	turn = filtered
+
 	for i := len(turn) - 1; i >= 0; i-- {
 		message := turn[i]
 		if message.Role != "assistant" {
