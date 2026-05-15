@@ -633,7 +633,7 @@ func (s *Service) handleMessageCreate(_ *discordgo.Session, message *discordgo.M
 	}
 
 	content := strings.TrimSpace(message.Content)
-	if content == "" && !messageHasAttachments(message.Message) {
+	if content == "" && !messageHasAttachments(message.Message) && len(message.MessageSnapshots) == 0 {
 		return
 	}
 
@@ -946,6 +946,15 @@ func (s *Service) userPromptFromMessage(message *discordgo.MessageCreate) inboun
 		content = appendAttachmentInventory(content, attachments)
 	}
 
+	if len(message.MessageSnapshots) > 0 {
+		forwardedContent := formatForwardedSnapshots(message.MessageSnapshots)
+		if strings.TrimSpace(content) == "" {
+			content = forwardedContent
+		} else {
+			content = content + "\n\n" + forwardedContent
+		}
+	}
+
 	return inboundPrompt{
 		Kind:         promptKindUser,
 		Content:      content,
@@ -1066,6 +1075,28 @@ func buildUserMessageParts(content string, attachments []downloadedAttachment, v
 		return nil
 	}
 	return parts
+}
+
+func formatForwardedSnapshots(snapshots []discordgo.MessageSnapshot) string {
+	var builder strings.Builder
+	for i, snap := range snapshots {
+		if snap.Message == nil {
+			continue
+		}
+		if i > 0 {
+			builder.WriteString("\n---\n")
+		}
+		builder.WriteString("[Forwarded message]")
+		if snap.Message.Author != nil {
+			builder.WriteString(" From: ")
+			builder.WriteString(snap.Message.Author.Username)
+		}
+		if snap.Message.Content != "" {
+			builder.WriteString("\n")
+			builder.WriteString(snap.Message.Content)
+		}
+	}
+	return builder.String()
 }
 
 func (s *Service) prepareInboundAttachments(message *discordgo.Message) []downloadedAttachment {
