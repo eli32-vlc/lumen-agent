@@ -15,13 +15,6 @@ import (
 	"element-orion/internal/tools"
 )
 
-const autoFollowThroughPrompt = "System follow-up: you made workspace changes during this turn. Unless the work is already verified or you are genuinely blocked, continue autonomously. Inspect the saved result, run the smallest relevant verification step you can, update TASKS.md if that would help continuity, and then give the final user-facing reply. Do not ask for confirmation for low-risk verification or obvious next steps."
-const autoRecoveryPrompt = "System recovery: one or more tool calls failed during this turn. Continue autonomously by trying the safest reasonable fallback, narrower scope, or inspection step you can. Only stop if you are genuinely blocked or the next action would be high-risk. If you remain blocked, give a concrete blocker plus the best next step."
-const autoWrapUpPrompt = "System wrap-up: your latest reply is too generic for the work completed in this turn. Continue autonomously and give a concrete final update: what changed, what you verified, any remaining blocker, and the next useful step if anything is still pending."
-const emptyReplyNudgePrompt = "System nudge: you completed tool work during this turn but produced no text reply for the user. Summarise what you did, what changed, and any next steps. Send the summary as your reply. Do not make more tool calls."
-const maxAutoBudget = 5
-const stallThreshold = 5
-
 type chatClient interface {
 	Chat(ctx context.Context, req llm.Request) (llm.Message, error)
 }
@@ -126,10 +119,6 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 		Parts:     conversation.UserParts,
 		Timestamp: r.messageTimestamp(initialUserTime),
 	})
-	turnStartIndex := len(workingHistory) - 1
-	autoBudget := maxAutoBudget
-	consecutiveFailures := 0
-	lastFailedTool := ""
 
 	model := r.cfg.LLM.Model
 	if strings.TrimSpace(conversation.ModelOverride) != "" {
@@ -194,54 +183,6 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 		}
 
 		if len(response.ToolCalls) == 0 {
-			turnMessages := workingHistory[turnStartIndex+1:]
-
-			if autoBudget > 0 && shouldAutoRecover(turnMessages) {
-				autoBudget--
-				workingHistory = append(workingHistory, llm.Message{
-					Role:       "user",
-					Content:    autoRecoveryPrompt,
-					Timestamp:  r.messageTimestamp(time.Now().UTC()),
-					IsInternal: true,
-				})
-				emit(Event{Kind: EventStatus, Message: "Auto-recovery", Time: time.Now()})
-				continue
-			}
-			if autoBudget > 0 && shouldAutoFollowThrough(turnMessages) {
-				autoBudget--
-				workingHistory = append(workingHistory, llm.Message{
-					Role:       "user",
-					Content:    autoFollowThroughPrompt,
-					Timestamp:  r.messageTimestamp(time.Now().UTC()),
-					IsInternal: true,
-				})
-				emit(Event{Kind: EventStatus, Message: "Auto-follow-through", Time: time.Now()})
-				continue
-			}
-			if autoBudget > 0 && shouldAutoWrapUp(turnMessages) {
-				autoBudget--
-				workingHistory = append(workingHistory, llm.Message{
-					Role:       "user",
-					Content:    autoWrapUpPrompt,
-					Timestamp:  r.messageTimestamp(time.Now().UTC()),
-					IsInternal: true,
-				})
-				emit(Event{Kind: EventStatus, Message: "Auto-wrap-up", Time: time.Now()})
-				continue
-			}
-
-			if autoBudget > 0 && hasToolActivity(turnMessages) && strings.TrimSpace(response.Content) == "" {
-				autoBudget--
-				workingHistory = append(workingHistory, llm.Message{
-					Role:       "user",
-					Content:    emptyReplyNudgePrompt,
-					Timestamp:  r.messageTimestamp(time.Now().UTC()),
-					IsInternal: true,
-				})
-				emit(Event{Kind: EventStatus, Message: "Nudge for text reply", Time: time.Now()})
-				continue
-			}
-
 			emit(Event{Kind: EventStatus, Message: "Ready", Time: time.Now()})
 			return workingHistory, nil
 		}
@@ -273,32 +214,6 @@ func (r *Runner) Run(ctx context.Context, history []llm.Message, userPrompt stri
 			if item.Call.Function.Name == "compact_context" {
 				workingHistory = r.applyExplicitContextCompaction(workingHistory, emit)
 			}
-
-			if item.Err != nil {
-				toolName := item.Call.Function.Name
-				if toolName == lastFailedTool {
-					consecutiveFailures++
-				} else {
-					consecutiveFailures = 1
-					lastFailedTool = toolName
-				}
-			} else {
-				consecutiveFailures = 0
-				lastFailedTool = ""
-			}
-		}
-
-		if consecutiveFailures >= stallThreshold && autoBudget > 0 {
-			autoBudget--
-			workingHistory = append(workingHistory, llm.Message{
-				Role:       "user",
-				Content:    autoRecoveryPrompt,
-				Timestamp:  r.messageTimestamp(time.Now().UTC()),
-				IsInternal: true,
-			})
-			emit(Event{Kind: EventStatus, Message: "Recovery from stall", Time: time.Now()})
-			consecutiveFailures = 0
-			lastFailedTool = ""
 		}
 	}
 }
@@ -448,144 +363,6 @@ func isParallelSafeTool(name string) bool {
 		"get_background_task_logs",
 		"list_sandbox_containers",
 		"inspect_sandbox_container":
-		return true
-	default:
-		return false
-	}
-}
-
-func shouldAutoFollowThrough(messages []llm.Message) bool {
-	if len(messages) == 0 {
-		return false
-	}
-
-	if containsInjectedPrompt(messages, autoFollowThroughPrompt) {
-		return false
-	}
-
-	return hasMutatingToolResult(messages)
-}
-
-func shouldAutoRecover(messages []llm.Message) bool {
-	if len(messages) == 0 {
-		return false
-	}
-
-	if containsInjectedPrompt(messages, autoRecoveryPrompt) {
-		return false
-	}
-
-	return hasToolErrorResult(messages)
-}
-
-func shouldAutoWrapUp(messages []llm.Message) bool {
-	if len(messages) == 0 {
-		return false
-	}
-
-	if containsInjectedPrompt(messages, autoWrapUpPrompt) {
-		return false
-	}
-
-	if !hasToolActivity(messages) {
-		return false
-	}
-
-	lastAssistant, ok := lastAssistantMessage(messages)
-	if !ok {
-		return false
-	}
-
-	return isVagueCompletionReply(lastAssistant.Content)
-}
-
-func containsInjectedPrompt(messages []llm.Message, prompt string) bool {
-	for _, message := range messages {
-		if message.Role == "user" && strings.TrimSpace(message.Content) == prompt {
-			return true
-		}
-	}
-	return false
-}
-
-func hasToolActivity(messages []llm.Message) bool {
-	for _, message := range messages {
-		if message.Role == "tool" {
-			return true
-		}
-	}
-	return false
-}
-
-func hasMutatingToolResult(messages []llm.Message) bool {
-	for _, message := range messages {
-		if message.Role != "tool" {
-			continue
-		}
-		if !isMutatingTool(message.Name) {
-			continue
-		}
-		if isToolErrorContent(message.Content) {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
-func hasToolErrorResult(messages []llm.Message) bool {
-	for _, message := range messages {
-		if message.Role != "tool" {
-			continue
-		}
-		if isToolErrorContent(message.Content) {
-			return true
-		}
-	}
-	return false
-}
-
-func isMutatingTool(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "write_file", "replace_in_file", "move_path", "delete_path", "mkdir":
-		return true
-	default:
-		return false
-	}
-}
-
-func isToolErrorContent(content string) bool {
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(content), &parsed); err == nil {
-		_, ok := parsed["error"]
-		return ok
-	}
-	lower := strings.ToLower(content)
-	return strings.Contains(lower, `"error":`) ||
-		strings.Contains(lower, `"error" :`) ||
-		strings.Contains(lower, `"error":"`)
-}
-
-func lastAssistantMessage(messages []llm.Message) (llm.Message, bool) {
-	for idx := len(messages) - 1; idx >= 0; idx-- {
-		if messages[idx].Role == "assistant" {
-			return messages[idx], true
-		}
-	}
-	return llm.Message{}, false
-}
-
-func isVagueCompletionReply(content string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(content))
-	normalized = strings.TrimSuffix(normalized, "!")
-	normalized = strings.TrimSuffix(normalized, ".")
-
-	switch normalized {
-	case "", "done", "fixed", "updated", "completed", "all set", "all done",
-		"i updated the file", "i fixed it", "finished",
-		"that's done", "that should be done", "should be fixed",
-		"done now", "that is done", "i've done that",
-		"ok", "okay", "sure", "got it":
 		return true
 	default:
 		return false
