@@ -67,6 +67,36 @@
     return `${value.toFixed(1)}%`;
   }
 
+  function formatRelativeTime(rfc3339) {
+    if (!rfc3339) {
+      return "—";
+    }
+    const parsed = new Date(rfc3339);
+    if (Number.isNaN(parsed.getTime())) {
+      return "—";
+    }
+    const diff = parsed.getTime() - Date.now();
+    if (diff < 0) {
+      return "past due";
+    }
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) {
+      return `in ${sec}s`;
+    }
+    const min = Math.floor(sec / 60);
+    if (min < 60) {
+      return `in ${min}m`;
+    }
+    const hours = Math.floor(min / 60);
+    const remainMin = min % 60;
+    if (hours < 24) {
+      return remainMin > 0 ? `in ${hours}h ${remainMin}m` : `in ${hours}h`;
+    }
+    const days = Math.floor(hours / 24);
+    const remainH = hours % 24;
+    return remainH > 0 ? `in ${days}d ${remainH}h` : `in ${days}d`;
+  }
+
   function formatTokensPerSecond(value) {
     if (!Number.isFinite(value) || value <= 0) {
       return "—";
@@ -377,6 +407,12 @@
           ? `${formatNumber(completedModelEvents.length)} completed model calls sampled`
           : "no completed model calls with duration yet",
         trend: `${compactionStatus}, ${compactionMeta}`,
+      },
+      {
+        label: "Next Heartbeat",
+        value: formatRelativeTime(summary.next_heartbeat_at),
+        meta: summary.next_heartbeat_at ? formatTime(summary.next_heartbeat_at) : "heartbeat not enabled",
+        trend: summary.next_heartbeat_at ? "when the next scheduled run fires" : "set heartbeat.every + target to enable",
       },
     ];
 

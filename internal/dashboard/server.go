@@ -44,13 +44,14 @@ type stateResponse struct {
 }
 
 type summaryState struct {
-	TotalTokens      int `json:"total_tokens"`
-	ModelCalls       int `json:"model_calls"`
-	RecentToolCalls  int `json:"recent_tool_calls"`
-	ToolFailures     int `json:"tool_failures"`
-	ActiveNodes      int `json:"active_nodes"`
-	ActiveSessions   int `json:"active_sessions"`
-	BackgroundEvents int `json:"background_events"`
+	TotalTokens      int    `json:"total_tokens"`
+	ModelCalls       int    `json:"model_calls"`
+	RecentToolCalls  int    `json:"recent_tool_calls"`
+	ToolFailures     int    `json:"tool_failures"`
+	ActiveNodes      int    `json:"active_nodes"`
+	ActiveSessions   int    `json:"active_sessions"`
+	BackgroundEvents int    `json:"background_events"`
+	NextHeartbeatAt  string `json:"next_heartbeat_at,omitempty"`
 }
 
 type memoryState struct {
@@ -245,6 +246,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	state := BuildState(entries, now, s.activityWindow, logLimit, toolLimit)
+	state.Summary.NextHeartbeatAt = buildNextHeartbeatTime(s.cfg, now)
 	state.Memory = buildMemoryState(s.cfg)
 	state.Config = buildConfigState(s.cfg)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -412,6 +414,70 @@ func buildMemoryState(cfg config.Config) memoryState {
 	}
 
 	return state
+}
+
+func buildNextHeartbeatTime(cfg config.Config, now time.Time) string {
+	if !cfg.HeartbeatEnabled() {
+		return ""
+	}
+	interval := cfg.HeartbeatInterval()
+	next := now.Add(interval)
+
+	startStr := strings.TrimSpace(cfg.Heartbeat.ActiveHours.Start)
+	endStr := strings.TrimSpace(cfg.Heartbeat.ActiveHours.End)
+	if startStr == "" || endStr == "" {
+		return next.UTC().Format(time.RFC3339)
+	}
+
+	tz := time.Local
+	if tzStr := strings.TrimSpace(cfg.Heartbeat.ActiveHours.Timezone); tzStr != "" {
+		if loc, err := time.LoadLocation(tzStr); err == nil {
+			tz = loc
+		}
+	}
+
+	startMin, errStart := parseHHMM(startStr)
+	endMin, errEnd := parseHHMM(endStr)
+	if errStart != nil || errEnd != nil {
+		return next.UTC().Format(time.RFC3339)
+	}
+
+	localNow := now.In(tz)
+	currentMin := localNow.Hour()*60 + localNow.Minute()
+
+	var inWindow bool
+	if startMin <= endMin {
+		inWindow = currentMin >= startMin && currentMin < endMin
+	} else {
+		inWindow = currentMin >= startMin || currentMin < endMin
+	}
+	if inWindow {
+		return next.UTC().Format(time.RFC3339)
+	}
+
+	y, m, d := localNow.Date()
+	nextWindow := time.Date(y, m, d, startMin/60, startMin%60, 0, 0, tz)
+	if currentMin >= endMin && startMin <= endMin {
+		nextWindow = nextWindow.Add(24 * time.Hour)
+	}
+	if !inWindow && startMin > endMin && currentMin >= startMin {
+		nextWindow = nextWindow.Add(24 * time.Hour)
+	}
+
+	return nextWindow.UTC().Format(time.RFC3339)
+}
+
+func parseHHMM(value string) (int, error) {
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("invalid HH:MM %q", value)
+	}
+	h, errH := strconv.Atoi(parts[0])
+	m, errM := strconv.Atoi(parts[1])
+	if errH != nil || errM != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, fmt.Errorf("invalid HH:MM %q", value)
+	}
+	return h*60 + m, nil
 }
 
 func buildConfigState(cfg config.Config) configState {
